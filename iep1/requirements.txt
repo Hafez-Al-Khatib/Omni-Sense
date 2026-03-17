@@ -1,0 +1,10 @@
+fastapi>=0.110
+uvicorn[standard]>=0.27
+tensorflow>=2.15,<2.17
+tensorflow-hub>=0.16
+soundfile>=0.12
+librosa>=0.10
+numpy>=1.26
+pydantic>=2.6
+prometheus-client>=0.20
+prometheus-fastapi-instrumentator>=7.0

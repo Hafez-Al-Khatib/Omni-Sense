@@ -1,0 +1,104 @@
+version: "3.9"
+
+services:
+  # ── External Endpoint (API Gateway) ─────────────────────
+  eep:
+    build:
+      context: ./eep
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - OMNI_IEP1_URL=http://iep1:8001
+      - OMNI_IEP2_URL=http://iep2:8002
+      - OMNI_RATE_LIMIT=5/minute
+    depends_on:
+      iep1:
+        condition: service_healthy
+      iep2:
+        condition: service_healthy
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  # ── Internal Endpoint 1 (YAMNet Embeddings) ─────────────
+  iep1:
+    build:
+      context: ./iep1
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s # YAMNet takes time to download on first run
+      retries: 3
+    networks:
+      - omni-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  # ── Internal Endpoint 2 (Diagnostic Engine) ─────────────
+  iep2:
+    build:
+      context: ./iep2
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')" ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  # ── Prometheus (Metrics Collection) ─────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  # ── Grafana (Dashboards) ────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards-json:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+networks:
+  omni-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
