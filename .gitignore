@@ -35,7 +35,7 @@ data/synthesized/
 *.wav
 *.ogg
 *.mp3
-
+*.csv
 # Model artifacts (large binaries)
 iep2/models/*.onnx
 iep2/models/*.joblib
