@@ -56,3 +56,6 @@ htmlcov/
 
 # Grafana
 monitoring/grafana/data/
+
+# Temporarily for progress knowledge base
+*.md

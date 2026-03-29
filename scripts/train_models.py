@@ -49,40 +49,51 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 EMBEDDING_COLS = [f"embedding_{i}" for i in range(1024)]
 
 PIPE_MATERIAL_MAP = {
-    "PVC": 0,
-    "Steel": 1,
+    "PVC":       0,
+    "Steel":     1,
     "Cast_Iron": 2,
 }
 
 
-def prepare_features(df: pd.DataFrame) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def prepare_features(
+    df: pd.DataFrame,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, LabelEncoder]:
     """
     Prepare feature matrix and labels from embeddings DataFrame.
 
     Features = [embedding_0..1023, pipe_material_encoded, pressure_bar]
-    Labels = binary {0: background, 1: leak}
+              = 1026 dimensions total (unchanged from binary baseline)
+
+    Labels: auto-detected as binary (2 classes) or multi-class (>2 classes).
+    pipe_material values outside the known map default to 0 (PVC).
+    pressure_bar NaNs default to 3.0 bar.
 
     Returns:
-        X: (n_samples, 1026) feature matrix
-        y: (n_samples,) binary labels
-        embeddings_only: (n_samples, 1024) just the embeddings (for IF)
+        X             : (n_samples, 1026) float32 feature matrix
+        y             : (n_samples,) int labels
+        embeddings    : (n_samples, 1024) float32 — used for Isolation Forest
+        label_encoder : fitted LabelEncoder (class order → index mapping)
     """
     embeddings = df[EMBEDDING_COLS].values.astype(np.float32)
 
-    # Encode pipe_material
-    pipe_encoded = df["pipe_material"].map(PIPE_MATERIAL_MAP).fillna(0).values.reshape(-1, 1)
+    pipe_encoded = (
+        df["pipe_material"]
+        .map(PIPE_MATERIAL_MAP)
+        .fillna(0)
+        .values.reshape(-1, 1)
+        .astype(np.float32)
+    )
+    pressure = df["pressure_bar"].fillna(3.0).values.reshape(-1, 1).astype(np.float32)
 
-    # Pressure
-    pressure = df["pressure_bar"].fillna(3.0).values.reshape(-1, 1)
+    X = np.hstack([embeddings, pipe_encoded, pressure])
 
-    # Full feature matrix
-    X = np.hstack([embeddings, pipe_encoded, pressure]).astype(np.float32)
-
-    # Binary labels
     le = LabelEncoder()
-    y = le.fit_transform(df["label"].values)  # background=0, leak=1
+    y = le.fit_transform(df["label"].values)
 
-    return X, y, embeddings
+    n_classes = len(le.classes_)
+    print(f"  Classes ({n_classes}): {list(le.classes_)}")
+
+    return X, y, embeddings, le
 
 
 # ─── Isolation Forest Training ───────────────────────────────────────────────
@@ -147,12 +158,24 @@ def train_xgboost(
     X_val: np.ndarray,
     y_val: np.ndarray,
 ) -> xgb.XGBClassifier:
-    """Train XGBoost classifier with early stopping."""
+    """
+    Train XGBoost classifier with early stopping.
+
+    Automatically selects binary or multi-class objective based on the
+    number of unique label values in y_train.
+    """
+    n_classes = len(np.unique(y_train))
+    is_multiclass = n_classes > 2
+
+    objective = "multi:softprob" if is_multiclass else "binary:logistic"
+    eval_metric = "mlogloss" if is_multiclass else "logloss"
+
     print(f"\n  Training XGBoost classifier...")
-    print(f"  Training: {X_train.shape[0]} samples, Validation: {X_val.shape[0]} samples")
+    print(f"  Mode: {'multi-class' if is_multiclass else 'binary'} ({n_classes} classes)")
+    print(f"  Training: {X_train.shape[0]} samples | Validation: {X_val.shape[0]} samples")
     print(f"  Feature dim: {X_train.shape[1]} (1024 embedding + 2 metadata)")
 
-    model = xgb.XGBClassifier(
+    kwargs = dict(
         n_estimators=500,
         max_depth=6,
         learning_rate=0.05,
@@ -162,20 +185,17 @@ def train_xgboost(
         gamma=0.1,
         reg_alpha=0.1,
         reg_lambda=1.0,
-        objective="binary:logistic",
-        eval_metric="logloss",
-        use_label_encoder=False,
+        objective=objective,
+        eval_metric=eval_metric,
         random_state=42,
         n_jobs=-1,
         early_stopping_rounds=30,
     )
+    if is_multiclass:
+        kwargs["num_class"] = n_classes
 
-    model.fit(
-        X_train, y_train,
-        eval_set=[(X_val, y_val)],
-        verbose=50,
-    )
-
+    model = xgb.XGBClassifier(**kwargs)
+    model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=50)
     return model
 
 
@@ -183,17 +203,29 @@ def evaluate_xgboost(
     model: xgb.XGBClassifier,
     X_test: np.ndarray,
     y_test: np.ndarray,
+    label_encoder: LabelEncoder,
 ) -> dict:
-    """Evaluate XGBoost and return metrics dict."""
+    """
+    Evaluate XGBoost and return metrics dict.
+    Handles both binary and multi-class automatically.
+    """
     y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)[:, 1]
+    y_proba = model.predict_proba(X_test)
+    n_classes = len(label_encoder.classes_)
+
+    if n_classes == 2:
+        roc_auc = float(roc_auc_score(y_test, y_proba[:, 1]))
+    else:
+        roc_auc = float(
+            roc_auc_score(y_test, y_proba, multi_class="ovr", average="macro")
+        )
 
     metrics = {
-        "accuracy": float(accuracy_score(y_test, y_pred)),
-        "f1": float(f1_score(y_test, y_pred, average="weighted")),
+        "accuracy":  float(accuracy_score(y_test, y_pred)),
+        "f1":        float(f1_score(y_test, y_pred, average="weighted")),
         "precision": float(precision_score(y_test, y_pred, average="weighted")),
-        "recall": float(recall_score(y_test, y_pred, average="weighted")),
-        "roc_auc": float(roc_auc_score(y_test, y_proba)),
+        "recall":    float(recall_score(y_test, y_pred, average="weighted")),
+        "roc_auc":   roc_auc,
     }
 
     print(f"\n  XGBoost Test Results:")
@@ -202,7 +234,10 @@ def evaluate_xgboost(
         print(f"    {k:>12}: {v:.4f}")
 
     print(f"\n  Classification Report:")
-    print(classification_report(y_test, y_pred, target_names=["background", "leak"]))
+    print(classification_report(
+        y_test, y_pred,
+        target_names=list(label_encoder.classes_),
+    ))
 
     return metrics
 
@@ -304,9 +339,11 @@ def main():
 
     # ── Prepare features ──
     print("\n[2/6] Preparing features...")
-    X, y, embeddings_only = prepare_features(df)
+    X, y, embeddings_only, label_encoder = prepare_features(df)
     print(f"  Feature matrix: {X.shape}")
-    print(f"  Labels: {np.unique(y, return_counts=True)}")
+    unique, counts = np.unique(y, return_counts=True)
+    for cls_idx, cnt in zip(unique, counts):
+        print(f"    class {cls_idx} ({label_encoder.classes_[cls_idx]}): {cnt} samples")
 
     # ── Train/test split ──
     X_train, X_test, y_train, y_test = train_test_split(
@@ -347,7 +384,7 @@ def main():
 
         # ── Evaluate ──
         print("\n[5/6] Evaluating...")
-        metrics = evaluate_xgboost(xgb_model, X_test, y_test)
+        metrics = evaluate_xgboost(xgb_model, X_test, y_test, label_encoder)
 
         for k, v in metrics.items():
             mlflow.log_metric(f"xgb_{k}", v)
@@ -370,6 +407,15 @@ def main():
         import joblib
         joblib.dump(iforest, output_dir / "isolation_forest.joblib")
         joblib.dump(xgb_model, output_dir / "xgboost_classifier.joblib")
+
+        # Save label map so IEP2 can decode class indices at inference time.
+        # Format: {"0": "Circumferential_Crack", "1": "Gasket_Leak", ...}
+        label_map = {str(i): cls for i, cls in enumerate(label_encoder.classes_)}
+        label_map_path = output_dir / "label_map.json"
+        with open(label_map_path, "w") as f:
+            json.dump(label_map, f, indent=2)
+        print(f"  Label map saved: {label_map_path}")
+        mlflow.log_artifact(str(label_map_path))
 
         # Log model artifacts to MLflow
         mlflow.log_artifacts(str(output_dir), artifact_path="models")
