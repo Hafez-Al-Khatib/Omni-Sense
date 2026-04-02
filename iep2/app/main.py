@@ -9,6 +9,7 @@ Accepts 1024-d YAMNet embeddings + metadata, returns diagnosis.
 """
 
 import logging
+from pathlib import Path
 
 import numpy as np
 from fastapi import FastAPI, HTTPException
@@ -19,6 +20,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.ood_detector import OODDetector
 from app.classifier import LeakClassifier
 from app.calibration import CalibrationManager
+from app.drift_monitor import drift_monitor
 from app.schemas import (
     DiagnoseRequest,
     DiagnoseResponse,
@@ -54,6 +56,60 @@ OOD_REJECTIONS = Counter(
     "Number of requests rejected as Out-of-Distribution",
 )
 
+SCADA_MISMATCHES = Counter(
+    "iep2_scada_mismatches_total",
+    "High-confidence predictions inconsistent with the provided pressure metadata",
+)
+
+# ─── SCADA Consistency ────────────────────────────────────────────────────────
+
+# Physics-based pressure window (bar) per fault class.
+# A confident prediction outside this window signals a potential
+# acoustic spoof or sensor/metadata error.
+_PRESSURE_PHYSICS: dict[str, tuple[float, float]] = {
+    "No_Leak":               (0.3, 20.0),
+    "Orifice_Leak":          (0.5,  8.0),
+    "Gasket_Leak":           (0.5,  8.0),
+    "Longitudinal_Crack":    (0.5,  5.5),  # cracks cause rapid pressure drop
+    "Circumferential_Crack": (0.5,  5.5),  # catastrophic; very high stable P = suspicious
+    "Normal_Operation":      (0.0, 20.0),
+}
+_SCADA_CONFIDENCE_GATE = 0.85  # only flag when model is this confident
+
+
+def _check_scada_consistency(
+    label: str, confidence: float, pressure_bar: float
+) -> tuple[bool, str | None]:
+    """
+    Compare the classified fault type against the operator-supplied pressure.
+
+    Returns (mismatch: bool, detail: str | None).
+    A mismatch at high confidence indicates either a sensor/metadata error
+    or active acoustic spoofing (playing a leak recording near the sensor
+    while pipe pressure is normal/high).
+    """
+    if confidence < _SCADA_CONFIDENCE_GATE:
+        return False, None
+
+    p_min, p_max = _PRESSURE_PHYSICS.get(label, (0.0, 20.0))
+
+    if pressure_bar < p_min:
+        return True, (
+            f"Pressure {pressure_bar:.1f} bar is below the physical minimum "
+            f"({p_min} bar) for '{label}'. Possible dead pipe, closed valve, "
+            f"or sensor detachment."
+        )
+
+    if pressure_bar > p_max:
+        return True, (
+            f"Pressure {pressure_bar:.1f} bar is unexpectedly stable for "
+            f"'{label}' at {confidence:.0%} confidence (max expected: {p_max} bar). "
+            f"Real {label.replace('_', ' ').lower()} events cause measurable pressure "
+            f"drop. Possible acoustic spoofing or metadata error."
+        )
+
+    return False, None
+
 # ─── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Omni-Sense IEP2 — Diagnostic & Safety Engine",
@@ -69,6 +125,9 @@ classifier = LeakClassifier()
 calibration_mgr = CalibrationManager()
 
 
+_CENTROID_PATH = Path("models/centroid.npy")
+
+
 @app.on_event("startup")
 async def startup():
     """Load models on startup."""
@@ -77,6 +136,12 @@ async def startup():
     logger.info("Loading XGBoost model...")
     classifier.load()
     logger.info("All models loaded.")
+
+    # Load reference centroid for drift monitoring (written by train_models.py)
+    if _CENTROID_PATH.exists():
+        centroid = np.load(_CENTROID_PATH)
+        drift_monitor.set_reference_centroid(centroid)
+        logger.info(f"Drift monitor: reference centroid loaded from {_CENTROID_PATH}")
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -102,11 +167,6 @@ async def diagnose(request: DiagnoseRequest):
 
     embedding = np.array(request.embedding, dtype=np.float32)
 
-    if len(embedding) != 1024:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Expected 1024-d embedding, got {len(embedding)}-d",
-        )
 
     with IEP2_INFERENCE_DURATION.time():
         # ── Stage 1: OOD Detection (The Watchdog) ──
@@ -143,6 +203,20 @@ async def diagnose(request: DiagnoseRequest):
         )
 
         PREDICTION_CONFIDENCE.observe(prediction["confidence"])
+        drift_monitor.observe(embedding, prediction["confidence"])
+
+        scada_mismatch, scada_detail = _check_scada_consistency(
+            label=prediction["label"],
+            confidence=prediction["confidence"],
+            pressure_bar=request.pressure_bar,
+        )
+        if scada_mismatch:
+            SCADA_MISMATCHES.inc()
+            logger.warning(
+                f"SCADA mismatch: label={prediction['label']} "
+                f"confidence={prediction['confidence']:.2f} "
+                f"pressure={request.pressure_bar} bar — {scada_detail}"
+            )
 
     return DiagnoseResponse(
         label=prediction["label"],
@@ -150,6 +224,8 @@ async def diagnose(request: DiagnoseRequest):
         probabilities=prediction["probabilities"],
         anomaly_score=float(anomaly_score),
         is_in_distribution=True,
+        scada_mismatch=scada_mismatch,
+        scada_mismatch_detail=scada_detail,
     )
 
 

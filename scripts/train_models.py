@@ -2,7 +2,7 @@
 Omni-Sense Model Training Pipeline
 ====================================
 Trains the Isolation Forest (OOD detector) and XGBoost (classifier)
-on YAMNet embeddings, with MLflow experiment tracking and ONNX export.
+on vibration feature vectors, with MLflow experiment tracking and ONNX export.
 
 Usage:
     python scripts/train_models.py \
@@ -46,7 +46,8 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 # ─── Feature Engineering ────────────────────────────────────────────────────
 
-EMBEDDING_COLS = [f"embedding_{i}" for i in range(1024)]
+N_FEATURES = 208  # must match iep1/app/feature_extractor.py N_FEATURES
+EMBEDDING_COLS = [f"embedding_{i}" for i in range(N_FEATURES)]
 
 PIPE_MATERIAL_MAP = {
     "PVC":       0,
@@ -61,8 +62,8 @@ def prepare_features(
     """
     Prepare feature matrix and labels from embeddings DataFrame.
 
-    Features = [embedding_0..1023, pipe_material_encoded, pressure_bar]
-              = 1026 dimensions total (unchanged from binary baseline)
+    Features = [embedding_0..207, pipe_material_encoded, pressure_bar]
+              = 210 dimensions total (208 vibration features + 2 metadata)
 
     Labels: auto-detected as binary (2 classes) or multi-class (>2 classes).
     pipe_material values outside the known map default to 0 (PVC).
@@ -74,7 +75,9 @@ def prepare_features(
         embeddings    : (n_samples, 1024) float32 — used for Isolation Forest
         label_encoder : fitted LabelEncoder (class order → index mapping)
     """
-    embeddings = df[EMBEDDING_COLS].values.astype(np.float32)
+    # Select only the feature columns that exist (handles any N_FEATURES)
+    feature_cols = [c for c in EMBEDDING_COLS if c in df.columns]
+    embeddings = df[feature_cols].values.astype(np.float32)
 
     pipe_encoded = (
         df["pipe_material"]
@@ -173,7 +176,7 @@ def train_xgboost(
     print(f"\n  Training XGBoost classifier...")
     print(f"  Mode: {'multi-class' if is_multiclass else 'binary'} ({n_classes} classes)")
     print(f"  Training: {X_train.shape[0]} samples | Validation: {X_val.shape[0]} samples")
-    print(f"  Feature dim: {X_train.shape[1]} (1024 embedding + 2 metadata)")
+    print(f"  Feature dim: {X_train.shape[1]}")
 
     kwargs = dict(
         n_estimators=500,
@@ -340,7 +343,8 @@ def main():
     # ── Prepare features ──
     print("\n[2/6] Preparing features...")
     X, y, embeddings_only, label_encoder = prepare_features(df)
-    print(f"  Feature matrix: {X.shape}")
+    n_feat = embeddings_only.shape[1]
+    print(f"  Feature matrix: {X.shape} ({n_feat} vibration features + 2 metadata)")
     unique, counts = np.unique(y, return_counts=True)
     for cls_idx, cnt in zip(unique, counts):
         print(f"    class {cls_idx} ({label_encoder.classes_[cls_idx]}): {cnt} samples")
@@ -349,7 +353,7 @@ def main():
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=args.test_size, random_state=42, stratify=y,
     )
-    emb_train = X_train[:, :1024]
+    emb_train = X_train[:, :embeddings_only.shape[1]]
 
     # Further split train into train/val for XGBoost early stopping
     X_tr, X_val, y_tr, y_val = train_test_split(
@@ -373,7 +377,7 @@ def main():
         mlflow.log_param("test_size", len(X_test))
 
         # Log IF scores on test embeddings
-        test_emb = X_test[:, :1024]
+        test_emb = X_test[:, :embeddings_only.shape[1]]
         if_scores = iforest.decision_function(test_emb)
         mlflow.log_metric("if_score_mean", float(np.mean(if_scores)))
         mlflow.log_metric("if_score_std", float(np.std(if_scores)))
@@ -400,8 +404,9 @@ def main():
         if_onnx_path = output_dir / "isolation_forest.onnx"
         xgb_onnx_path = output_dir / "xgboost_classifier.onnx"
 
-        export_isolation_forest_onnx(iforest, if_onnx_path, n_features=1024)
-        export_xgboost_onnx(xgb_model, xgb_onnx_path, n_features=1026)
+        n_emb = embeddings_only.shape[1]
+        export_isolation_forest_onnx(iforest, if_onnx_path, n_features=n_emb)
+        export_xgboost_onnx(xgb_model, xgb_onnx_path, n_features=n_emb + 2)
 
         # Also save as joblib fallback
         import joblib
@@ -416,6 +421,13 @@ def main():
             json.dump(label_map, f, indent=2)
         print(f"  Label map saved: {label_map_path}")
         mlflow.log_artifact(str(label_map_path))
+
+        # Save training centroid (vibration features only, no metadata).
+        centroid = emb_train.mean(axis=0)
+        centroid_path = output_dir / "centroid.npy"
+        np.save(centroid_path, centroid)
+        print(f"  Centroid saved : {centroid_path}")
+        mlflow.log_artifact(str(centroid_path))
 
         # Log model artifacts to MLflow
         mlflow.log_artifacts(str(output_dir), artifact_path="models")

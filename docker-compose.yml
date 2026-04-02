@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # ── External Endpoint (API Gateway) ─────────────────────
   eep:
@@ -11,11 +9,14 @@ services:
     environment:
       - OMNI_IEP1_URL=http://iep1:8001
       - OMNI_IEP2_URL=http://iep2:8002
+      - OMNI_IEP3_URL=http://iep3:8003
       - OMNI_RATE_LIMIT=5/minute
     depends_on:
       iep1:
         condition: service_healthy
       iep2:
+        condition: service_healthy
+      iep3:
         condition: service_healthy
     networks:
       - omni-net
@@ -95,6 +96,25 @@ services:
       - omni-net
     restart: unless-stopped
 
+  # ── Internal Endpoint 3 (Dispatch & Active Learning) ────
+  iep3:
+    build:
+      context: ./iep3
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8003"
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')" ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    volumes:
+      - iep3-tickets:/app/tickets
+    networks:
+      - omni-net
+    restart: unless-stopped
+
 networks:
   omni-net:
     driver: bridge
@@ -102,3 +122,4 @@ networks:
 volumes:
   prometheus-data:
   grafana-data:
+  iep3-tickets:

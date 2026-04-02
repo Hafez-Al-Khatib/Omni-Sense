@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: list[str] = ["*"]
 
+    # IEP3 — Dispatch & Active Learning
+    IEP3_URL: str = "http://iep3:8003"
+    IEP3_TIMEOUT: float = 5.0
+    DISPATCH_CONFIDENCE_THRESHOLD: float = 0.90
+
     # Timeouts (seconds)
     IEP1_TIMEOUT: float = 30.0
     IEP2_TIMEOUT: float = 10.0

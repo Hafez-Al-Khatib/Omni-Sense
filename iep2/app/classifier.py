@@ -118,10 +118,10 @@ class LeakClassifier:
         pressure_bar: float = 3.0,
     ) -> dict:
         """
-        Classify an acoustic embedding with metadata context.
+        Classify a vibration feature vector with metadata context.
 
         Args:
-            embedding: 1024-d float32 YAMNet embedding
+            embedding: N-d float32 feature vector (208-d vibration features)
             pipe_material: "PVC", "Steel", or "Cast_Iron"
             pressure_bar: Pipe pressure in bar
 

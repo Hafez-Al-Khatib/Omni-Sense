@@ -9,7 +9,6 @@ import io
 import logging
 
 import httpx
-import numpy as np
 
 from app.config import settings
 
@@ -137,6 +136,38 @@ async def call_iep2_diagnose(
         except Exception as e:
             logger.error(f"IEP2 call failed: {e}", exc_info=True)
             raise OrchestratorError(f"IEP2 error: {str(e)}", status_code=502)
+
+
+async def call_iep3_notify(
+    label: str,
+    confidence: float,
+    probabilities: dict,
+    anomaly_score: float,
+    pipe_material: str,
+    pressure_bar: float,
+    scada_mismatch: bool,
+) -> None:
+    """
+    Fire-and-forget dispatch to IEP3 when a high-confidence fault is detected.
+    Failures are logged as warnings only — never propagated to the caller.
+    """
+    url = f"{settings.IEP3_URL}/api/v1/ticket"
+    payload = {
+        "label": label,
+        "confidence": confidence,
+        "probabilities": probabilities,
+        "anomaly_score": anomaly_score,
+        "pipe_material": pipe_material,
+        "pressure_bar": pressure_bar,
+        "scada_mismatch": scada_mismatch,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=settings.IEP3_TIMEOUT) as client:
+            response = await client.post(url, json=payload)
+            if response.status_code not in (200, 201):
+                logger.warning(f"IEP3 ticket creation returned {response.status_code}: {response.text}")
+    except Exception as e:
+        logger.warning(f"IEP3 dispatch failed (non-critical): {e}")
 
 
 async def call_iep2_calibrate(ambient_embeddings: list[list[float]]) -> dict:

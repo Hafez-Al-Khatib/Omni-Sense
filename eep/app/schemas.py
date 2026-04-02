@@ -26,6 +26,10 @@ class DiagnoseResult(BaseModel):
     anomaly_score: float
     is_in_distribution: bool
     signal_quality: dict
+    scada_mismatch: bool = False
+    scada_mismatch_detail: str | None = None
+    baseline_decision: str = "unknown"
+    baseline_rms: float = 0.0
 
 
 class OODResult(BaseModel):

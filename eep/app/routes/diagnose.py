@@ -6,11 +6,14 @@ POST /api/v1/diagnose — The primary diagnostic endpoint.
 Flow:
     1. Validate audio payload (size, format)
     2. Signal QA checks (dead sensor, clipping)
-    3. Call IEP1 for YAMNet embedding
-    4. Call IEP2 for OOD detection + classification
-    5. Return diagnosis or safety exception
+    3. Amplitude-threshold baseline (industry 80dB trigger)
+    4. Call IEP1 for YAMNet embedding
+    5. Call IEP2 for OOD detection + classification
+    6. Fire-and-forget dispatch to IEP3 if high-confidence fault
+    7. Return diagnosis or safety exception
 """
 
+import asyncio
 import io
 import json
 import logging
@@ -20,11 +23,24 @@ import numpy as np
 import soundfile as sf
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
+from prometheus_client import Counter
 
 from app.config import settings
+
+BASELINE_DECISIONS = Counter(
+    "eep_baseline_decisions_total",
+    "Amplitude-threshold baseline classifier decisions",
+    ["decision"],  # "leak_detected" | "no_leak"
+)
 from app.middleware.rate_limiter import limiter
 from app.services.signal_qa import check_signal_quality
-from app.services.orchestrator import call_iep1_embed, call_iep2_diagnose, OrchestratorError
+from app.services.baseline import run_baseline
+from app.services.orchestrator import (
+    call_iep1_embed,
+    call_iep2_diagnose,
+    call_iep3_notify,
+    OrchestratorError,
+)
 
 logger = logging.getLogger("eep.diagnose")
 router = APIRouter()
@@ -101,6 +117,8 @@ async def diagnose(
         silence_threshold=settings.SILENCE_RMS_THRESHOLD,
         clipping_threshold=settings.CLIPPING_PEAK_THRESHOLD,
     )
+    baseline = run_baseline(audio_data)
+    BASELINE_DECISIONS.labels(decision=baseline["baseline_decision"]).inc()
 
     if not quality["is_valid"]:
         raise HTTPException(
@@ -153,13 +171,33 @@ async def diagnose(
             content={
                 **result,
                 "signal_quality": quality,
+                "baseline_decision": baseline["baseline_decision"],
+                "baseline_rms": baseline["baseline_rms"],
                 "elapsed_ms": round(elapsed_ms, 1),
             },
+        )
+
+    # ── Fire-and-forget dispatch to IEP3 when confidence is high ──
+    label = result.get("label", "")
+    confidence = result.get("confidence", 0.0)
+    if label not in ("No_Leak", "Normal_Operation") and confidence >= settings.DISPATCH_CONFIDENCE_THRESHOLD:
+        asyncio.create_task(
+            call_iep3_notify(
+                label=label,
+                confidence=confidence,
+                probabilities=result.get("probabilities", {}),
+                anomaly_score=result.get("anomaly_score", 0.0),
+                pipe_material=pipe_material,
+                pressure_bar=pressure_bar,
+                scada_mismatch=result.get("scada_mismatch", False),
+            )
         )
 
     # ── Success Response ──
     return {
         **result,
         "signal_quality": quality,
+        "baseline_decision": baseline["baseline_decision"],
+        "baseline_rms": baseline["baseline_rms"],
         "elapsed_ms": round(elapsed_ms, 1),
     }

@@ -30,6 +30,15 @@ scrape_configs:
           service: "iep2"
           role: "diagnostic"
 
+  # ── IEP3 (Dispatch & Active Learning) ──
+  - job_name: "iep3"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["iep3:8003"]
+        labels:
+          service: "iep3"
+          role: "dispatch"
+
   # ── Prometheus self-monitoring ──
   - job_name: "prometheus"
     static_configs:
