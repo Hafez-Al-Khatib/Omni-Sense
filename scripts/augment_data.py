@@ -260,7 +260,6 @@ def process_source_wav(
     wav_path: Path,
     output_dir: Path,
     seismic_files: list[Path],
-    enable_speed_perturb: bool,
     rng: np.random.Generator,
     step_s: float,
 ) -> list[dict]:
@@ -292,54 +291,56 @@ def process_source_wav(
         print(f"  [SKIP] {wav_path.name}: too short for one window")
         return []
 
+    # Assign ONE pipe material per source recording.
+    # Using all 3 materials per window creates intra-class variance > inter-class
+    # variance: the dominant LPF signature masks fault-class differences, making
+    # all 5 classes appear statistically identical to the classifier.
+    material = rng.choice(list(PIPE_PROFILES.keys()))
+
     rows: list[dict] = []
 
     for win_idx, window in enumerate(windows):
-        window = peak_normalise(window)
+        # Do NOT peak-normalise: RMS amplitude is a discriminative feature
+        # (orifice leaks are louder than hairline cracks). Peak normalisation
+        # was previously destroying inter-class amplitude differences and making
+        # all feature distributions identical. Clip only to prevent hard distortion.
+        window = np.clip(window, -1.0, 1.0).astype(np.float32)
+        filtered = apply_pipe_lpf(window, material)
 
-        for material in PIPE_PROFILES:
-            filtered = apply_pipe_lpf(window, material)
-            filtered = peak_normalise(filtered)
+        # ── Variant A: clean (pipe LPF only) ──
+        rows.append(_save_clip(
+            filtered, output_dir, label, meta, material, pressure,
+            win_idx, "clean", rows, rng,
+        ))
 
-            # ── Variant A: clean (pipe LPF only) ──
-            rows.append(_save_clip(
-                filtered, output_dir, label, meta, material, pressure,
-                win_idx, "clean", rows, rng,
-            ))
+        # ── Variant B: + AWGN (σ randomly drawn from [0.003, 0.010]) ──
+        sigma = rng.uniform(0.003, 0.010)
+        noisy = add_awgn(filtered, sigma, rng)
+        rows.append(_save_clip(
+            noisy, output_dir, label, meta, material, pressure,
+            win_idx, "awgn", rows, rng,
+        ))
 
-            # ── Variant B: + AWGN (σ randomly drawn from [0.003, 0.010]) ──
-            sigma = rng.uniform(0.003, 0.010)
-            noisy = add_awgn(filtered, sigma, rng)
-            rows.append(_save_clip(
-                noisy, output_dir, label, meta, material, pressure,
-                win_idx, "awgn", rows, rng,
-            ))
+        # ── Variant C: amplitude jitter ──
+        jitter_factor = rng.uniform(0.80, 1.20)
+        jittered = amplitude_jitter(filtered, jitter_factor)
+        rows.append(_save_clip(
+            jittered, output_dir, label, meta, material, pressure,
+            win_idx, "amp_jitter", rows, rng,
+        ))
 
-            # ── Variant C: amplitude jitter ──
-            jitter_factor = rng.uniform(0.80, 1.20)
-            jittered = amplitude_jitter(filtered, jitter_factor)
-            rows.append(_save_clip(
-                jittered, output_dir, label, meta, material, pressure,
-                win_idx, "amp_jitter", rows, rng,
-            ))
+        # Speed perturbation (Variant D) is intentionally DISABLED for vibration data.
+        # Time-stretching shifts all MFCC-derived spectral features by ±8%, adding
+        # intra-class spectral noise that overwhelms the subtle inter-class differences.
+        # It is valid for speech (pitch/tempo vary naturally) but harmful here because
+        # the specific spectral shape of a leak IS the discriminative fingerprint.
 
-            # ── Variant D: speed perturbation (±8%) ──
-            if enable_speed_perturb:
-                rate = rng.choice([0.92, 1.08])
-                perturbed = speed_perturb(filtered, float(rate))
-                rows.append(_save_clip(
-                    perturbed, output_dir, label, meta, material, pressure,
-                    win_idx, f"speed_{rate:.2f}", rows, rng,
-                ))
-
-        # ── Variant E: seismic noise mix (on Steel — broadest bandwidth) ──
+        # ── Variant D: seismic noise mix (optional) ──
         if seismic_files:
-            steel_filtered = apply_pipe_lpf(window, "Steel")
-            steel_filtered = peak_normalise(steel_filtered)
             snr_db = float(rng.choice([5, 10, 15]))
-            seismic_mixed = mix_seismic_noise(steel_filtered, seismic_files, snr_db, rng)
+            seismic_mixed = mix_seismic_noise(filtered, seismic_files, snr_db, rng)
             rows.append(_save_clip(
-                seismic_mixed, output_dir, label, meta, "Steel", pressure,
+                seismic_mixed, output_dir, label, meta, material, pressure,
                 win_idx, f"seismic_snr{snr_db:.0f}", rows, rng,
             ))
 
@@ -517,7 +518,6 @@ def main():
             wav_path,
             output_dir,
             seismic_files,
-            enable_speed_perturb=not args.no_speed_perturb,
             rng=rng,
             step_s=args.window_step,
         )

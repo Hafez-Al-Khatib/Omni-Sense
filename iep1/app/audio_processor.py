@@ -62,9 +62,11 @@ def preprocess_audio(audio_bytes: bytes) -> np.ndarray:
         padded[:len(audio)] = audio
         audio = padded
 
-    # Normalize to [-1, 1] range
-    peak = np.max(np.abs(audio))
-    if peak > 1e-6:
-        audio = audio / peak
+    # Soft-clip to [-1, 1] without rescaling.
+    # Peak normalization is intentionally NOT applied: the augmentation pipeline
+    # outputs calibrated amplitudes, and RMS energy is a discriminative feature
+    # between fault classes (orifice leaks are louder than hairline cracks).
+    # Re-normalising each window independently would destroy this information.
+    audio = np.clip(audio, -1.0, 1.0)
 
     return audio
