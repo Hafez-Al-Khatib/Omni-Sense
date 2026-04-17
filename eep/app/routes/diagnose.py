@@ -39,6 +39,8 @@ from app.services.orchestrator import (
     call_iep1_embed,
     call_iep2_diagnose,
     call_iep3_notify,
+    call_iep4_classify,
+    ensemble_iep2_iep4,
     OrchestratorError,
 )
 
@@ -132,7 +134,7 @@ async def diagnose(
             },
         )
 
-    # ── Call IEP1: Extract Embedding ──
+    # ── Call IEP1: Extract physics features ──
     try:
         embedding = await call_iep1_embed(audio_bytes)
     except OrchestratorError as e:
@@ -142,14 +144,24 @@ async def diagnose(
             detail={
                 "error": "Feature Extraction Failed",
                 "message": str(e),
-                "service": "IEP1 (YAMNet)",
+                "service": "IEP1 (Vibration Feature Extractor)",
                 **e.detail,
             },
         )
 
-    # ── Call IEP2: Diagnose ──
+    # ── Parallel fan-out: IEP2 (classical ML) + IEP4 (CNN) ──
+    # asyncio.gather runs both calls concurrently.
+    # IEP4 errors are suppressed (returns None) — the pipeline never fails
+    # due to IEP4 being unavailable or not yet trained.
+    iep2_task = call_iep2_diagnose(embedding, pipe_material, pressure_bar)
+    iep4_task = call_iep4_classify(audio_bytes)
+
     try:
-        result = await call_iep2_diagnose(embedding, pipe_material, pressure_bar)
+        iep2_result, iep4_result = await asyncio.gather(
+            iep2_task,
+            iep4_task,
+            return_exceptions=False,   # IEP2 errors still propagate
+        )
     except OrchestratorError as e:
         logger.error(f"IEP2 orchestration error: {e}")
         raise HTTPException(
@@ -161,6 +173,9 @@ async def diagnose(
                 **e.detail,
             },
         )
+
+    # ── Ensemble IEP2 + IEP4 ──
+    result = ensemble_iep2_iep4(iep2_result, iep4_result)
 
     elapsed_ms = (time.time() - start_time) * 1000
 

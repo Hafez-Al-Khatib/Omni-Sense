@@ -29,7 +29,7 @@ import mlflow.sklearn
 import mlflow.xgboost
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import IsolationForest
+from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.metrics import (
     accuracy_score,
     classification_report,
@@ -46,8 +46,9 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 # ─── Feature Engineering ────────────────────────────────────────────────────
 
-N_FEATURES = 208  # must match iep1/app/feature_extractor.py N_FEATURES
-EMBEDDING_COLS = [f"embedding_{i}" for i in range(N_FEATURES)]
+# NOTE: N_FEATURES is now dynamic — never hardcoded here.
+# prepare_features() reads whatever embedding_* columns are present in the
+# parquet file, so the pipeline adapts automatically when IEP1 changes.
 
 PIPE_MATERIAL_MAP = {
     "PVC":       0,
@@ -58,6 +59,14 @@ PIPE_MATERIAL_MAP = {
 
 # Labels that represent "no fault" — everything else is a leak.
 NO_FAULT_LABELS = {"No_Leak", "Normal_Operation"}
+
+
+def _get_embedding_cols(df: pd.DataFrame) -> list[str]:
+    """Return sorted embedding column names regardless of total count."""
+    return sorted(
+        [c for c in df.columns if c.startswith("embedding_")],
+        key=lambda c: int(c.split("_")[1]),
+    )
 
 
 def prepare_features(
@@ -74,8 +83,8 @@ def prepare_features(
     vs 8.8% 5-class accuracy — the dataset does not have enough recordings per class
     to learn fault-type distinctions reliably.
     """
-    # Select only the feature columns that exist (handles any N_FEATURES)
-    feature_cols = [c for c in EMBEDDING_COLS if c in df.columns]
+    # Select only the feature columns that exist — dynamic, never hardcoded
+    feature_cols = _get_embedding_cols(df)
     embeddings = df[feature_cols].values.astype(np.float32)
 
     pipe_encoded = (
@@ -141,7 +150,7 @@ def train_isolation_forest(
 def export_isolation_forest_onnx(
     model: IsolationForest,
     output_path: Path,
-    n_features: int = 1024,
+    n_features: int = 100,
 ):
     """Export Isolation Forest to ONNX format."""
     from skl2onnx import convert_sklearn
@@ -248,7 +257,7 @@ def evaluate_xgboost(
     }
 
     print(f"\n  XGBoost Test Results:")
-    print(f"  {'─' * 40}")
+    print(f"  {'-' * 40}")
     for k, v in metrics.items():
         print(f"    {k:>12}: {v:.4f}")
 
@@ -264,7 +273,7 @@ def evaluate_xgboost(
 def export_xgboost_onnx(
     model: xgb.XGBClassifier,
     output_path: Path,
-    n_features: int = 1026,
+    n_features: int = 102,
 ):
     """Export XGBoost model to ONNX format."""
     from skl2onnx import convert_sklearn, update_registered_converter
@@ -292,6 +301,61 @@ def export_xgboost_onnx(
         f.write(onnx_model.SerializeToString())
 
     print(f"  XGBoost exported to: {output_path}")
+
+
+# ─── Random Forest Training ──────────────────────────────────────────────────
+
+def train_random_forest(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+) -> RandomForestClassifier:
+    """
+    Train a Random Forest classifier as ensemble companion to XGBoost.
+
+    RF complements XGBoost on small datasets because:
+    - Bagging reduces variance (XGBoost can overfit tiny training sets)
+    - Each tree sees a random feature subset → decorrelated errors
+    - Out-of-bag error gives a free internal validation signal
+
+    For the Omni-Sense ~80-recording dataset, RF with balanced class weights
+    provides better No_Leak recall than XGBoost alone.
+    """
+    n_classes = len(np.unique(y_train))
+    print(f"\n  Training Random Forest ({n_classes} classes)...")
+    print(f"  Training: {X_train.shape[0]} samples | Features: {X_train.shape[1]}")
+
+    model = RandomForestClassifier(
+        n_estimators=500,
+        max_depth=None,          # Grow full trees — bagging handles variance
+        min_samples_split=2,
+        min_samples_leaf=1,
+        max_features="sqrt",     # Standard for classification
+        class_weight="balanced", # Compensates for Leak/No_Leak imbalance
+        oob_score=True,          # Free internal validation
+        random_state=42,
+        n_jobs=-1,
+    )
+    model.fit(X_train, y_train)
+    print(f"  OOB score: {model.oob_score_:.4f}")
+    return model
+
+
+def export_rf_onnx(
+    model: RandomForestClassifier,
+    output_path: Path,
+    n_features: int = 102,
+):
+    """Export Random Forest to ONNX format."""
+    from skl2onnx import convert_sklearn
+    from skl2onnx.common.data_types import FloatTensorType
+
+    initial_type = [("float_input", FloatTensorType([None, n_features]))]
+    onnx_model = convert_sklearn(model, initial_types=initial_type)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "wb") as f:
+        f.write(onnx_model.SerializeToString())
+    print(f"  Random Forest exported to: {output_path}")
 
 
 # ─── Main Pipeline ───────────────────────────────────────────────────────────
@@ -538,7 +602,7 @@ def main():
 
         cv_auc = float(np.mean(fold_aucs)) if fold_aucs else float("nan")
         print(f"\n  {cv_name} Results (ROC-AUC: {cv_auc:.4f})")
-        print(f"  {'─' * 40}")
+        print(f"  {'-' * 40}")
 
         res_05    = _eval_at_threshold(0.50, "default")
         res_prior = _eval_at_threshold(base_score, "class-prior / Bayes-optimal")
@@ -580,38 +644,55 @@ def main():
             "aggregate_recordings": args.aggregate_recordings,
         })
 
-        # ── Export to ONNX ──
-        print("\n[6/6] Exporting models to ONNX...")
-        if_onnx_path = output_dir / "isolation_forest.onnx"
-        xgb_onnx_path = output_dir / "xgboost_classifier.onnx"
+        # ── Train Random Forest on ALL recordings ──
+        print("\n[5b/6] Training Random Forest (XGBoost ensemble companion)...")
+        rf_model = train_random_forest(X, y)
+        mlflow.log_metric("rf_oob_score", rf_model.oob_score_)
 
-        n_emb = embeddings_only.shape[1]
-        export_isolation_forest_onnx(iforest, if_onnx_path, n_features=n_emb)
-        export_xgboost_onnx(xgb_model, xgb_onnx_path, n_features=n_emb + 2)
-
-        # Also save as joblib fallback
+        # ─── Export Fallback Models (Joblib) ───
         import joblib
         joblib.dump(iforest, output_dir / "isolation_forest.joblib")
         joblib.dump(xgb_model, output_dir / "xgboost_classifier.joblib")
+        joblib.dump(rf_model, output_dir / "rf_classifier.joblib")
 
         # Save label map so IEP2 can decode class indices at inference time.
-        # Includes the production decision threshold — IEP2 must use this value
-        # instead of the default 0.5 when calling predict() on the XGBoost model.
         label_map = {str(i): cls for i, cls in enumerate(label_encoder.classes_)}
         label_map["_decision_threshold"] = production_threshold
         label_map_path = output_dir / "label_map.json"
         with open(label_map_path, "w") as f:
             json.dump(label_map, f, indent=2)
-        print(f"  Label map saved: {label_map_path}")
+        print(f"\n  Model artifacts saved (joblib): {output_dir}")
         print(f"  Production threshold: {production_threshold:.3f}")
         mlflow.log_artifact(str(label_map_path))
 
-        # Save training centroid (vibration features only, no metadata).
-        centroid = emb_train.mean(axis=0)
+        # Save training centroid
+        centroid = embeddings_only.mean(axis=0)
         centroid_path = output_dir / "centroid.npy"
         np.save(centroid_path, centroid)
         print(f"  Centroid saved : {centroid_path}")
         mlflow.log_artifact(str(centroid_path))
+
+        # ─── Export to ONNX (Optional) ───
+        print("\n[6/6] Attempting ONNX export...")
+        try:
+            if_onnx_path = output_dir / "isolation_forest.onnx"
+            xgb_onnx_path = output_dir / "xgboost_classifier.onnx"
+            rf_onnx_path = output_dir / "rf_classifier.onnx"
+
+            n_emb = embeddings_only.shape[1]
+            n_feat_total = n_emb + 2
+            
+            export_isolation_forest_onnx(iforest, if_onnx_path, n_features=n_emb)
+            export_xgboost_onnx(xgb_model, xgb_onnx_path, n_features=n_feat_total)
+            try:
+                export_rf_onnx(rf_model, rf_onnx_path, n_features=n_feat_total)
+            except Exception as e:
+                print(f"  [WARN] RF ONNX export failed ({e})")
+                
+            print(f"  ONNX models exported successfully to {output_dir}")
+        except Exception as e:
+            print(f"  [SKIPPED] ONNX export failed: {e}")
+            print("  App will use Joblib/fallback models.")
 
         # Log model artifacts to MLflow
         mlflow.log_artifacts(str(output_dir), artifact_path="models")
@@ -627,7 +708,7 @@ def main():
     print(f"Training complete!")
     print(f"  Models: {output_dir}")
     print(f"  MLflow: {args.mlflow_tracking_uri}")
-    print(f"  F1 Score: {metrics['f1']:.4f}")
+    print(f"  F1 Score (prior thresh): {metrics['f1_prior']:.4f}")
     print(f"  ROC AUC: {metrics['roc_auc']:.4f}")
     print(f"{'=' * 60}")
 

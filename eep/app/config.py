@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     IEP3_TIMEOUT: float = 5.0
     DISPATCH_CONFIDENCE_THRESHOLD: float = 0.90
 
+    # IEP4 — Deep CNN Classifier (parallel with IEP2)
+    IEP4_URL: str = "http://iep4:8004"
+    IEP4_TIMEOUT: float = 15.0
+
     # Timeouts (seconds)
     IEP1_TIMEOUT: float = 30.0
     IEP2_TIMEOUT: float = 10.0

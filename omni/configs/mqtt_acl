@@ -1,0 +1,14 @@
+# MQTT topic ACL — Omni-Sense
+# Each sensor may only publish to its own subtopic.
+# The gateway service may subscribe to all sensor topics.
+
+# Gateway service — full read access
+user gateway
+topic read omni/#
+
+# Pattern ACL: sensors can only publish to their own sensor_id path
+# %u = MQTT username (which equals the cert CN = sensor_id)
+pattern write omni/sensor/+/%u/acoustic
+pattern write omni/sensor/+/%u/telemetry
+
+# No sensor may subscribe to anything (publish-only devices)

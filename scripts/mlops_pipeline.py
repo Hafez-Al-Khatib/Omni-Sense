@@ -46,11 +46,21 @@ import xgboost as xgb
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-EMBEDDING_COLS = [f"embedding_{i}" for i in range(1024)]
+# Dynamically resolve feature count from whatever columns are present.
+# Never hardcode a dimension — let the data define it.
 PIPE_MATERIAL_MAP = {"PVC": 0, "Steel": 1, "Cast_Iron": 2}
 
 
+def _get_embedding_cols(df: pd.DataFrame) -> list[str]:
+    """Return embedding columns in index order, regardless of total count."""
+    return sorted(
+        [c for c in df.columns if c.startswith("embedding_")],
+        key=lambda c: int(c.split("_")[1]),
+    )
+
+
 def prepare_features(df):
+    EMBEDDING_COLS = _get_embedding_cols(df)
     embeddings = df[EMBEDDING_COLS].values.astype(np.float32)
     pipe_encoded = df["pipe_material"].map(PIPE_MATERIAL_MAP).fillna(0).values.reshape(-1, 1)
     pressure = df["pressure_bar"].fillna(3.0).values.reshape(-1, 1)
@@ -127,7 +137,7 @@ def load_current_metrics(output_dir):
     return None
 
 
-def promote_model(iforest, xgb_model, metrics, output_dir):
+def promote_model(iforest, xgb_model, metrics, output_dir, n_emb: int = 100, n_features: int = 102):
     """Promote candidate to production: save models and metrics."""
     import joblib
 
@@ -151,13 +161,13 @@ def promote_model(iforest, xgb_model, metrics, output_dir):
         from skl2onnx import convert_sklearn
         from skl2onnx.common.data_types import FloatTensorType
 
-        # IF ONNX
-        initial_type = [("float_input", FloatTensorType([None, 1024]))]
+        # IF ONNX — trained on embedding columns only (n_emb dims)
+        initial_type = [("float_input", FloatTensorType([None, n_emb]))]
         onnx_model = convert_sklearn(iforest, initial_types=initial_type)
         with open(output_dir / "isolation_forest.onnx", "wb") as f:
             f.write(onnx_model.SerializeToString())
 
-        # XGBoost ONNX
+        # XGBoost ONNX — trained on full feature vector (n_features dims)
         from skl2onnx.common.shape_calculator import calculate_linear_classifier_output_shapes
         from onnxmltools.convert.xgboost.operator_converters.XGBoost import convert_xgboost
         from skl2onnx import update_registered_converter
@@ -167,7 +177,7 @@ def promote_model(iforest, xgb_model, metrics, output_dir):
             calculate_linear_classifier_output_shapes, convert_xgboost,
             options={"nocl": [True, False], "zipmap": [True, False, "columns"]},
         )
-        initial_type = [("float_input", FloatTensorType([None, 1026]))]
+        initial_type = [("float_input", FloatTensorType([None, n_features]))]
         onnx_model = convert_sklearn(xgb_model, initial_types=initial_type)
         with open(output_dir / "xgboost_classifier.onnx", "wb") as f:
             f.write(onnx_model.SerializeToString())
@@ -214,7 +224,9 @@ def main():
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=args.test_size, random_state=42, stratify=y,
     )
-    emb_train = X_train[:, :1024]
+    n_emb = embeddings_only.shape[1]   # Dynamic: 100 (physics features) or whatever IEP1 outputs
+    n_features = X.shape[1]            # n_emb + 2 (pipe_material, pressure_bar)
+    emb_train = X_train[:, :n_emb]
     X_tr, X_val, y_tr, y_val = train_test_split(
         X_train, y_train, test_size=0.15, random_state=42, stratify=y_train,
     )
@@ -276,7 +288,8 @@ def main():
 
         if promote:
             print("\n[Stage 5] Promoting candidate to production...")
-            promote_model(iforest, xgb_model, candidate_metrics, output_dir)
+            promote_model(iforest, xgb_model, candidate_metrics, output_dir,
+                          n_emb=n_emb, n_features=n_features)
             mlflow.log_artifacts(str(output_dir), artifact_path="production_models")
         else:
             print("\n[Stage 5] Keeping current production model (rollback).")

@@ -28,7 +28,7 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
-
+omnisense-env/
 # Data (large files - tracked via DVC or downloaded separately)
 data/raw/
 data/synthesized/
@@ -49,6 +49,9 @@ mlflow.db
 # Docker
 *.log
 
+# Documents
+*.docx
+
 # Test / Coverage
 .coverage
 htmlcov/
@@ -56,6 +59,8 @@ htmlcov/
 
 # Grafana
 monitoring/grafana/data/
+
+*.zip
 
 # Temporarily for progress knowledge base
 *.md

@@ -26,7 +26,7 @@ class CalibrateRequest(BaseModel):
     ambient_embeddings: list[list[float]] = Field(
         ...,
         min_length=1,
-        description="List of 1024-d ambient embeddings for calibration",
+        description="List of N_FEATURES-d ambient feature vectors for OOD threshold calibration",
     )
 
 

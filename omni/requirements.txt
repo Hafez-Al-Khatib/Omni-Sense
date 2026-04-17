@@ -1,0 +1,39 @@
+# Omni-Sense platform v2 — Python dependencies
+# Install: pip install -r omni/requirements.txt
+
+# ── Core ────────────────────────────────────────────────
+pydantic>=2.6,<3
+numpy>=1.26,<2
+scipy>=1.12               # signal processing helpers
+
+# ── ML / Inference ──────────────────────────────────────
+scikit-learn>=1.4
+xgboost>=2.0
+onnxruntime>=1.17         # CNN head (cnn_classifier.onnx)
+librosa>=0.10             # feature extraction
+
+# ── Security ────────────────────────────────────────────
+pynacl>=1.5               # Ed25519 signing for audit log
+
+# ── HTTP / API ───────────────────────────────────────────
+fastapi>=0.110
+uvicorn[standard]>=0.28
+httpx>=0.27               # async HTTP client for head fan-out
+
+# ── Ops Console ─────────────────────────────────────────
+streamlit>=1.33
+pandas>=2.2
+folium>=0.17              # map rendering (optional, falls back to st.map)
+
+# ── Testing ─────────────────────────────────────────────
+pytest>=8.1
+pytest-asyncio>=0.23
+
+# ── Production only (not needed for capstone demo) ───────
+# redpanda-client        # aiokafka or confluent-kafka-python
+# redis>=5.0             # Redis client for digital twin
+# timescaledb psycopg[binary]  # TimescaleDB + PostGIS
+# opentelemetry-sdk      # Prometheus / tracing
+# twilio                 # SMS notifications
+# firebase-admin         # FCM push notifications
+# sendgrid               # email notifications

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: omni-sense
+description: Omni-Sense water leak detection platform
+type: application
+version: 0.1.0
+appVersion: "2.0.0"
+keywords:
+  - water
+  - leak-detection
+  - iot
+  - scada
+home: https://github.com/omni-sense/omni-sense
+maintainers:
+  - name: Omni-Sense Team
+    email: ops@omni-sense.lb
+dependencies: []

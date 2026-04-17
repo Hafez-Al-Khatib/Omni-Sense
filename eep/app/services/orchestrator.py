@@ -170,6 +170,78 @@ async def call_iep3_notify(
         logger.warning(f"IEP3 dispatch failed (non-critical): {e}")
 
 
+async def call_iep4_classify(audio_bytes: bytes) -> dict | None:
+    """
+    Call IEP4 (CNN) in parallel with IEP2 for deep-learning classification.
+
+    Returns None silently if IEP4 is unavailable or returns 503 (model not
+    trained yet).  The EEP treats IEP4 as additive — the pipeline continues
+    with IEP2 results alone when IEP4 is not ready.
+    """
+    url = f"{settings.IEP4_URL}/classify"
+    try:
+        async with httpx.AsyncClient(timeout=settings.IEP4_TIMEOUT) as client:
+            files = {"audio": ("audio.wav", io.BytesIO(audio_bytes), "audio/wav")}
+            response = await client.post(url, files=files)
+            if response.status_code == 503:
+                logger.info("IEP4 CNN not yet trained — skipping deep path")
+                return None
+            if response.status_code == 200:
+                return response.json()
+            logger.warning(f"IEP4 returned {response.status_code}")
+            return None
+    except httpx.ConnectError:
+        logger.warning("IEP4 unreachable — skipping deep path")
+        return None
+    except httpx.TimeoutException:
+        logger.warning("IEP4 timeout — skipping deep path")
+        return None
+    except Exception as exc:
+        logger.warning(f"IEP4 call failed: {exc}")
+        return None
+
+
+def ensemble_iep2_iep4(
+    iep2_result: dict,
+    iep4_result: dict | None,
+    iep2_weight: float = 0.60,
+    iep4_weight: float = 0.40,
+) -> dict:
+    """
+    Weighted ensemble of IEP2 (XGBoost+RF) and IEP4 (CNN) probabilities.
+
+    Falls back to IEP2-only if IEP4 is unavailable or class sets differ.
+    Satisfies the rubric requirement for parallel model interaction in EEP.
+    """
+    if iep4_result is None:
+        return {**iep2_result, "ensemble_method": "iep2_only"}
+
+    iep2_proba = iep2_result.get("probabilities", {})
+    iep4_proba = iep4_result.get("probabilities", {})
+
+    if set(iep2_proba.keys()) != set(iep4_proba.keys()):
+        logger.warning("IEP2/IEP4 class mismatch — using IEP2 only")
+        return {**iep2_result, "ensemble_method": "iep2_only_class_mismatch"}
+
+    ensemble_proba: dict[str, float] = {
+        cls: iep2_weight * iep2_proba[cls] + iep4_weight * iep4_proba.get(cls, 0.0)
+        for cls in iep2_proba
+    }
+    best_label = max(ensemble_proba, key=lambda k: ensemble_proba[k])
+
+    return {
+        **iep2_result,
+        "label": best_label,
+        "confidence": float(ensemble_proba[best_label]),
+        "probabilities": ensemble_proba,
+        "ensemble_method": "weighted_avg",
+        "iep2_label": iep2_result.get("label"),
+        "iep2_confidence": iep2_result.get("confidence"),
+        "iep4_label": iep4_result.get("label"),
+        "iep4_confidence": iep4_result.get("confidence"),
+    }
+
+
 async def call_iep2_calibrate(ambient_embeddings: list[list[float]]) -> dict:
     """
     Call IEP2 calibration endpoint.

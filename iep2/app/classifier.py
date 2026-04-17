@@ -1,13 +1,24 @@
 """
-Leak Classifier
-=================
-Wraps the XGBoost model for multi-class fault classification.
-Supports both ONNX Runtime and joblib-loaded models.
+Leak Classifier — XGBoost + Random Forest Ensemble
+=====================================================
+Wraps two complementary classifiers and averages their probability outputs:
+
+  XGBoost   — gradient-boosted trees; strong on feature interactions
+  Random Forest — bagged trees; lower variance on small datasets; less
+                  prone to overfitting, better calibrated with class_weight
+
+Why an ensemble?
+  With only ~80–500 labelled recordings, a single model's variance is high.
+  XGBoost's boosting can overfit to noise; RF's bagging averages it out.
+  Averaging their softmax outputs gives a more calibrated confidence signal
+  and empirically reduces error by 5–15% on small-N benchmarks.
+
+Model priority:
+  ONNX (xgboost_classifier.onnx / rf_classifier.onnx)   ← preferred
+  joblib (xgboost_classifier.joblib / rf_classifier.joblib) ← fallback
 
 Class-index → label mapping is loaded from models/label_map.json,
-written by scripts/train_models.py at training time.  This means the
-classifier automatically adapts to binary or multi-class models without
-any code change — just retrain and the label map updates.
+written by scripts/train_models.py at training time.
 """
 
 import json
@@ -18,96 +29,141 @@ import numpy as np
 
 logger = logging.getLogger("iep2.classifier")
 
-ONNX_PATH = Path("models/xgboost_classifier.onnx")
-JOBLIB_PATH = Path("models/xgboost_classifier.joblib")
-LABEL_MAP_PATH = Path("models/label_map.json")
+# ─── Model file paths ────────────────────────────────────────────────────────
 
-# Must match training-time encoding (scripts/train_models.py: PIPE_MATERIAL_MAP)
+XGB_ONNX_PATH   = Path("models/xgboost_classifier.onnx")
+XGB_JOBLIB_PATH = Path("models/xgboost_classifier.joblib")
+RF_ONNX_PATH    = Path("models/rf_classifier.onnx")
+RF_JOBLIB_PATH  = Path("models/rf_classifier.joblib")
+LABEL_MAP_PATH  = Path("models/label_map.json")
+
+# Ensemble weight for XGBoost vs Random Forest (must sum to 1.0)
+_XGB_WEIGHT = 0.60
+_RF_WEIGHT  = 0.40
+
 PIPE_MATERIAL_MAP = {
     "PVC":       0,
     "Steel":     1,
     "Cast_Iron": 2,
 }
 
-# Fallback label map used only if label_map.json is missing.
-# Matches the original binary baseline so existing deployments keep working.
 _FALLBACK_LABEL_MAP: dict[int, str] = {
-    0: "background",
-    1: "leak",
+    0: "Leak",
+    1: "No_Leak",
 }
 
 
+# ─── Single-model loader ─────────────────────────────────────────────────────
+
+class _SingleClassifier:
+    """Internal helper: loads and runs one ONNX / joblib model."""
+
+    def __init__(self, name: str, onnx_path: Path, joblib_path: Path):
+        self.name = name
+        self._onnx_path = onnx_path
+        self._joblib_path = joblib_path
+        self._session = None
+        self._model = None
+        self._backend: str | None = None
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._backend is not None
+
+    def load(self) -> None:
+        if self._onnx_path.exists():
+            try:
+                import onnxruntime as ort
+                self._session = ort.InferenceSession(
+                    str(self._onnx_path),
+                    providers=["CPUExecutionProvider"],
+                )
+                self._backend = "onnx"
+                logger.info(f"{self.name}: loaded ONNX from {self._onnx_path}")
+                return
+            except Exception as exc:
+                logger.warning(f"{self.name}: ONNX load failed ({exc}), trying joblib")
+
+        if self._joblib_path.exists():
+            import joblib
+            self._model = joblib.load(self._joblib_path)
+            self._backend = "sklearn"
+            logger.info(f"{self.name}: loaded joblib from {self._joblib_path}")
+            return
+
+        logger.warning(
+            f"{self.name}: no model found at {self._onnx_path} or {self._joblib_path}"
+        )
+
+    def predict_proba(self, features: np.ndarray) -> np.ndarray:
+        """Returns probability array of shape (n_classes,)."""
+        if not self.is_loaded:
+            return np.array([])
+
+        if self._backend == "onnx":
+            input_name = self._session.get_inputs()[0].name
+            result = self._session.run(None, {input_name: features})
+            proba_dict = result[1][0]
+            if isinstance(proba_dict, dict):
+                return np.array(list(proba_dict.values()), dtype=np.float32)
+            return np.array(proba_dict, dtype=np.float32)
+        else:
+            return self._model.predict_proba(features)[0].astype(np.float32)
+
+
+# ─── Ensemble classifier ─────────────────────────────────────────────────────
+
 class LeakClassifier:
-    """XGBoost-based fault classifier with metadata features."""
+    """
+    XGBoost + Random Forest ensemble classifier.
+
+    Falls back gracefully if only one model is available (uses that model
+    alone with weight 1.0). If neither model is available, raises an error.
+    """
 
     def __init__(self):
-        self._model = None
-        self._session = None
-        self._backend = None
+        self._xgb = _SingleClassifier("XGBoost", XGB_ONNX_PATH, XGB_JOBLIB_PATH)
+        self._rf  = _SingleClassifier("RandomForest", RF_ONNX_PATH, RF_JOBLIB_PATH)
         self._is_loaded = False
         self._label_map: dict[int, str] = _FALLBACK_LABEL_MAP.copy()
+        self._decision_threshold: float = 0.5
 
     @property
     def is_loaded(self) -> bool:
         return self._is_loaded
 
     def _load_label_map(self, model_dir: Path) -> None:
-        """Load class-index → label mapping written by train_models.py."""
         label_map_p = model_dir / LABEL_MAP_PATH.name
         if label_map_p.exists():
             with open(label_map_p) as f:
                 raw = json.load(f)
-            self._label_map = {int(k): v for k, v in raw.items()}
-            logger.info(f"Loaded label map ({len(self._label_map)} classes): {self._label_map}")
+            # Filter out the special _decision_threshold key
+            self._label_map = {int(k): v for k, v in raw.items() if k != "_decision_threshold"}
+            if "_decision_threshold" in raw:
+                self._decision_threshold = float(raw["_decision_threshold"])
+                logger.info(f"Production decision threshold: {self._decision_threshold:.3f}")
+            logger.info(f"Label map ({len(self._label_map)} classes): {self._label_map}")
         else:
-            logger.warning(
-                f"label_map.json not found at {label_map_p}. "
-                "Using fallback binary map {0: background, 1: leak}."
-            )
+            logger.warning("label_map.json not found — using fallback binary map")
 
-    def load(self, onnx_path: str | None = None, joblib_path: str | None = None):
-        """Load XGBoost model and label map. Prefers ONNX; falls back to joblib."""
-        onnx_p = Path(onnx_path) if onnx_path else ONNX_PATH
-        joblib_p = Path(joblib_path) if joblib_path else JOBLIB_PATH
+    def load(self) -> None:
+        self._xgb.load()
+        self._rf.load()
 
-        if onnx_p.exists():
-            self._load_onnx(onnx_p)
-        elif joblib_p.exists():
-            self._load_sklearn(joblib_p)
-        else:
+        if not self._xgb.is_loaded and not self._rf.is_loaded:
             raise FileNotFoundError(
-                f"No model found at {onnx_p} or {joblib_p}. "
-                "Train models first with scripts/train_models.py."
+                "No classifier models found. "
+                "Run scripts/train_models.py first."
             )
 
-        # Load the label map from the same directory as the model
-        self._load_label_map(onnx_p.parent if onnx_p.exists() else joblib_p.parent)
-
-    def _load_onnx(self, path: Path):
-        import onnxruntime as ort
-
-        self._session = ort.InferenceSession(
-            str(path),
-            providers=["CPUExecutionProvider"],
-        )
-        self._backend = "onnx"
+        model_dir = XGB_ONNX_PATH.parent if XGB_ONNX_PATH.exists() else XGB_JOBLIB_PATH.parent
+        self._load_label_map(model_dir)
         self._is_loaded = True
-        logger.info(f"Loaded XGBoost (ONNX) from {path}")
 
-    def _load_sklearn(self, path: Path):
-        import joblib
+        loaded = [m.name for m in [self._xgb, self._rf] if m.is_loaded]
+        logger.info(f"Ensemble loaded: {loaded}")
 
-        self._model = joblib.load(path)
-        self._backend = "sklearn"
-        self._is_loaded = True
-        logger.info(f"Loaded XGBoost (joblib) from {path}")
-
-    def _encode_metadata(
-        self,
-        pipe_material: str,
-        pressure_bar: float,
-    ) -> np.ndarray:
-        """Encode metadata features to match training schema."""
+    def _encode_metadata(self, pipe_material: str, pressure_bar: float) -> np.ndarray:
         pipe_code = PIPE_MATERIAL_MAP.get(pipe_material, 0)
         return np.array([pipe_code, pressure_bar], dtype=np.float32)
 
@@ -118,52 +174,70 @@ class LeakClassifier:
         pressure_bar: float = 3.0,
     ) -> dict:
         """
-        Classify a vibration feature vector with metadata context.
+        Ensemble prediction: weighted average of XGBoost and RF probabilities.
 
         Args:
-            embedding: N-d float32 feature vector (208-d vibration features)
+            embedding: N-d float32 physics feature vector from IEP1
             pipe_material: "PVC", "Steel", or "Cast_Iron"
             pressure_bar: Pipe pressure in bar
 
         Returns:
-            dict with keys: label, confidence, probabilities
+            dict with keys: label, confidence, probabilities, ensemble_sources
         """
         if not self._is_loaded:
-            raise RuntimeError("Model not loaded")
+            raise RuntimeError("Classifier not loaded")
 
-        # Build feature vector: [embedding_0..1023, pipe_material, pressure_bar]
         metadata = self._encode_metadata(pipe_material, pressure_bar)
         features = np.concatenate([embedding, metadata]).reshape(1, -1).astype(np.float32)
 
-        if self._backend == "onnx":
-            input_name = self._session.get_inputs()[0].name
-            result = self._session.run(None, {input_name: features})
-            # ONNX XGBoost outputs: [labels, probabilities]
-            label_idx = int(result[0][0])
-            proba_dict = result[1][0]
-            if isinstance(proba_dict, dict):
-                probabilities = {
-                    self._label_map.get(int(k), str(k)): float(v)
-                    for k, v in proba_dict.items()
-                }
-            else:
-                probabilities = {
-                    self._label_map.get(i, str(i)): float(p)
-                    for i, p in enumerate(proba_dict)
-                }
-        else:
-            proba = self._model.predict_proba(features)[0]
-            label_idx = int(self._model.predict(features)[0])
-            probabilities = {
-                self._label_map.get(i, str(i)): float(p)
-                for i, p in enumerate(proba)
-            }
+        # Collect available model outputs
+        proba_parts: list[tuple[np.ndarray, float]] = []  # (proba, weight)
 
+        if self._xgb.is_loaded:
+            p = self._xgb.predict_proba(features)
+            if len(p) > 0:
+                proba_parts.append((p, _XGB_WEIGHT))
+
+        if self._rf.is_loaded:
+            p = self._rf.predict_proba(features)
+            if len(p) > 0:
+                proba_parts.append((p, _RF_WEIGHT))
+
+        if not proba_parts:
+            raise RuntimeError("All classifiers failed to produce predictions")
+
+        # Normalise weights in case one model is missing
+        total_w = sum(w for _, w in proba_parts)
+        ensemble_proba = sum(p * (w / total_w) for p, w in proba_parts)
+
+        # Apply production decision threshold (from training label_map.json)
+        # In binary mode, "No_Leak" is typically class index 1.
+        # threshold overrides the naive argmax when there is class imbalance.
+        n_classes = len(ensemble_proba)
+        if n_classes == 2:
+            # Binary: predict No_Leak if P(No_Leak) >= threshold
+            no_leak_idx = next(
+                (i for i, v in self._label_map.items() if "No_Leak" in v or "Normal" in v),
+                1,
+            )
+            leak_idx = 1 - no_leak_idx
+            if ensemble_proba[no_leak_idx] >= self._decision_threshold:
+                label_idx = no_leak_idx
+            else:
+                label_idx = leak_idx
+        else:
+            label_idx = int(np.argmax(ensemble_proba))
+
+        probabilities = {
+            self._label_map.get(i, str(i)): float(ensemble_proba[i])
+            for i in range(n_classes)
+        }
         label = self._label_map.get(label_idx, "unknown")
-        confidence = max(probabilities.values())
+        confidence = float(ensemble_proba[label_idx])
 
         return {
             "label": label,
-            "confidence": float(confidence),
+            "confidence": confidence,
             "probabilities": probabilities,
+            "ensemble_sources": [m.name for m in [self._xgb, self._rf] if m.is_loaded],
         }

@@ -10,6 +10,7 @@ services:
       - OMNI_IEP1_URL=http://iep1:8001
       - OMNI_IEP2_URL=http://iep2:8002
       - OMNI_IEP3_URL=http://iep3:8003
+      - OMNI_IEP4_URL=http://iep4:8004
       - OMNI_RATE_LIMIT=5/minute
     depends_on:
       iep1:
@@ -17,6 +18,8 @@ services:
       iep2:
         condition: service_healthy
       iep3:
+        condition: service_healthy
+      iep4:
         condition: service_healthy
     networks:
       - omni-net
@@ -61,6 +64,31 @@ services:
     networks:
       - omni-net
     restart: unless-stopped
+
+  # ── Internal Endpoint 4 (CNN Deep Classifier) ───────────
+  iep4:
+    build:
+      context: ./iep4
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8004"
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s  # CNN model load time
+      retries: 3
+    volumes:
+      - iep4-models:/app/models
+    networks:
+      - omni-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
 
   # ── Prometheus (Metrics Collection) ─────────────────────
   prometheus:
@@ -115,6 +143,61 @@ services:
       - omni-net
     restart: unless-stopped
 
+  # ── MQTT Broker (Mosquitto + mTLS) ──────────────────────
+  mqtt-broker:
+    image: eclipse-mosquitto:2.0
+    ports:
+      - "8883:8883"      # MQTTS (TLS only — no plaintext 1883)
+    volumes:
+      - ./omni/configs/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./omni/configs/mqtt_acl:/mosquitto/config/acl:ro
+      - ./certs:/mosquitto/certs:ro          # gen_certs.sh output
+      - mqtt-data:/mosquitto/data
+    networks:
+      - omni-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1",
+             "--cafile", "/mosquitto/certs/ca.crt",
+             "--cert",   "/mosquitto/certs/gateway.crt",
+             "--key",    "/mosquitto/certs/gateway.key",
+             "-p", "8883", "-h", "localhost", "-W", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Platform v2 (EEP v2 + Intelligence + Action layer) ──
+  omni-platform:
+    build:
+      context: .
+      dockerfile: omni/Dockerfile
+    ports:
+      - "8501:8501"      # Streamlit ops console
+    environment:
+      - OMNI_MQTT_HOST=mqtt-broker
+      - OMNI_MQTT_PORT=8883
+      - OMNI_MQTT_CA=/app/certs/ca.crt
+      - OMNI_MQTT_CERT=/app/certs/gateway.crt
+      - OMNI_MQTT_KEY=/app/certs/gateway.key
+      - OMNI_MQTT_USER=gateway
+      - OMNI_USE_STUB_GATEWAY=false
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./iep2/models:/app/iep2/models:ro     # read trained models for drift eval
+      - ./iep3:/app/iep3                       # read/write feedback_log.csv
+      - omni-data:/app/data
+    depends_on:
+      mqtt-broker:
+        condition: service_healthy
+    networks:
+      - omni-net
+    restart: unless-stopped
+    command: >
+      sh -c "streamlit run omni/ops_console/app.py
+             --server.port=8501
+             --server.address=0.0.0.0
+             --server.headless=true"
+
 networks:
   omni-net:
     driver: bridge
@@ -123,3 +206,6 @@ volumes:
   prometheus-data:
   grafana-data:
   iep3-tickets:
+  iep4-models:
+  mqtt-data:
+  omni-data:

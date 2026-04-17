@@ -242,10 +242,10 @@ async def calibrate(request: CalibrateRequest):
 
     embeddings = np.array(request.ambient_embeddings, dtype=np.float32)
 
-    if embeddings.ndim != 2 or embeddings.shape[1] != 1024:
+    if embeddings.ndim != 2 or embeddings.shape[0] < 1:
         raise HTTPException(
             status_code=400,
-            detail=f"Expected (N, 1024) embeddings, got shape {embeddings.shape}",
+            detail=f"Expected a 2-D array of shape (N, n_features), got {embeddings.shape}",
         )
 
     # Calculate scores for ambient embeddings
