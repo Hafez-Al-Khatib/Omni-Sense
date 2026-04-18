@@ -1,0 +1,102 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.omniPlatform.name }}
+  namespace: {{ include "omni-sense.namespace" . }}
+  labels:
+    {{- include "omni-sense.componentLabels" (dict "component" .Values.omniPlatform.name "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.omniPlatform.replicas }}
+  selector:
+    matchLabels:
+      {{- include "omni-sense.selectorLabels" (dict "component" .Values.omniPlatform.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "omni-sense.componentLabels" (dict "component" .Values.omniPlatform.name "context" .) | nindent 8 }}
+      annotations:
+        # Force rollout on configmap/secret change
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: {{ .Values.omniPlatform.name }}
+          image: {{ include "omni-sense.image" (dict "repository" .Values.omniPlatform.image.repository "context" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.omniPlatform.port }}
+              protocol: TCP
+          command:
+            - streamlit
+            - run
+            - omni/ops_console/app.py
+            - --server.port={{ .Values.omniPlatform.port }}
+            - --server.address=0.0.0.0
+            - --server.headless=true
+          envFrom:
+            - configMapRef:
+                name: omni-sense-config
+          env:
+            {{- range $key, $val := .Values.omniPlatform.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+            # Sensitive credentials from Secret
+            - name: TWILIO_ACCOUNT_SID
+              valueFrom:
+                secretKeyRef:
+                  name: omni-sense-secret
+                  key: TWILIO_ACCOUNT_SID
+                  optional: true
+            - name: TWILIO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: omni-sense-secret
+                  key: TWILIO_AUTH_TOKEN
+                  optional: true
+            - name: TWILIO_FROM_NUMBER
+              valueFrom:
+                secretKeyRef:
+                  name: omni-sense-secret
+                  key: TWILIO_FROM_NUMBER
+                  optional: true
+            - name: TWILIO_CREW_NUMBERS
+              valueFrom:
+                secretKeyRef:
+                  name: omni-sense-secret
+                  key: TWILIO_CREW_NUMBERS
+                  optional: true
+          volumeMounts:
+            - name: mqtt-certs
+              mountPath: /app/certs
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.omniPlatform.readinessProbe.path }}
+              port: {{ .Values.omniPlatform.readinessProbe.port }}
+            initialDelaySeconds: {{ .Values.omniPlatform.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.omniPlatform.readinessProbe.periodSeconds }}
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.omniPlatform.livenessProbe.path }}
+              port: {{ .Values.omniPlatform.livenessProbe.port }}
+            initialDelaySeconds: {{ .Values.omniPlatform.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.omniPlatform.livenessProbe.periodSeconds }}
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.omniPlatform.resources | nindent 12 }}
+      volumes:
+        - name: mqtt-certs
+          secret:
+            secretName: mqtt-tls
+            optional: true
+      restartPolicy: Always

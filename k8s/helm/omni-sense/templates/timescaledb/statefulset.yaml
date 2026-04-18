@@ -1,0 +1,85 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.timescaledb.name }}
+  namespace: {{ include "omni-sense.namespace" . }}
+  labels:
+    {{- include "omni-sense.componentLabels" (dict "component" .Values.timescaledb.name "context" .) | nindent 4 }}
+spec:
+  serviceName: {{ .Values.timescaledb.name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "omni-sense.selectorLabels" (dict "component" .Values.timescaledb.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "omni-sense.componentLabels" (dict "component" .Values.timescaledb.name "context" .) | nindent 8 }}
+    spec:
+      securityContext:
+        runAsUser: 70
+        fsGroup: 70
+      containers:
+        - name: timescaledb
+          image: {{ .Values.timescaledb.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: {{ .Values.timescaledb.port }}
+              protocol: TCP
+          env:
+            - name: POSTGRES_DB
+              value: {{ .Values.timescaledb.database | quote }}
+            - name: POSTGRES_USER
+              value: {{ .Values.timescaledb.user | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: omni-sense-secret
+                  key: TIMESCALEDB_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U {{ .Values.timescaledb.user }} -d {{ .Values.timescaledb.database }}
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 5
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U {{ .Values.timescaledb.user }} -d {{ .Values.timescaledb.database }}
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.timescaledb.resources | nindent 12 }}
+          volumeMounts:
+            - name: timescaledb-data
+              mountPath: /var/lib/postgresql/data
+  {{- if .Values.timescaledb.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: timescaledb-data
+        labels:
+          {{- include "omni-sense.componentLabels" (dict "component" .Values.timescaledb.name "context" .) | nindent 10 }}
+      spec:
+        accessModes:
+          - {{ .Values.timescaledb.persistence.accessMode }}
+        resources:
+          requests:
+            storage: {{ .Values.timescaledb.persistence.size }}
+        {{- if .Values.timescaledb.persistence.storageClass }}
+        storageClassName: {{ .Values.timescaledb.persistence.storageClass }}
+        {{- end }}
+  {{- else }}
+  # Ephemeral data — WARNING: data will be lost on pod restart
+  volumes:
+    - name: timescaledb-data
+      emptyDir: {}
+  {{- end }}

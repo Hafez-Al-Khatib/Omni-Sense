@@ -32,6 +32,8 @@ from omni.notify import service as notify_service
 from omni.audit import log as audit_log
 from omni.mlops.drift_detector import get_detector
 from omni.mlops.retraining_trigger import get_trigger
+from omni.mlops import feedback_watcher
+from omni.common.tracing import configure_tracing
 
 logging.basicConfig(
     level=logging.INFO,
@@ -64,6 +66,7 @@ async def _seed_twins() -> None:
 
 
 def wire_everything() -> None:
+    configure_tracing("omni-platform")
     orchestrator.wire()
     fusion.wire()
     engine.wire()
@@ -143,6 +146,8 @@ async def run_demo(forever: bool = False, use_gateway: bool = False) -> None:
     await _seed_twins()
     bus = get_bus()
     bus_task = asyncio.create_task(bus.run(), name="bus")
+    # Start feedback watcher as a background task — closes the active-learning loop
+    feedback_watcher.start()
 
     # Choose ingestion path
     if use_gateway:

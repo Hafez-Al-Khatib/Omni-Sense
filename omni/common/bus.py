@@ -32,6 +32,7 @@ class Topics:
     NOTIFY = "notify.request.v1"
     AUDIT = "audit.event.v1"
     TWIN_UPDATE = "twin.update.v1"
+    SCADA_READING = "scada.reading.v1"
 
 
 @dataclass

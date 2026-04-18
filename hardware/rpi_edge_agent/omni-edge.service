@@ -1,0 +1,73 @@
+# /etc/systemd/system/omni-edge.service
+# Omni-Sense Raspberry Pi Edge Agent
+#
+# Install: sudo bash install.sh   (preferred)
+#          OR manually: sudo systemctl enable --now omni-edge.service
+#
+# Logs:    journalctl -u omni-edge -f
+
+[Unit]
+Description=Omni-Sense Acoustic Edge Agent
+Documentation=https://github.com/your-org/omni-sense
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+# If Mosquitto runs locally, wait for it too
+# After=mosquitto.service
+
+[Service]
+Type=simple
+User=omni
+Group=omni
+
+WorkingDirectory=/opt/omni-edge
+
+# Python interpreter from venv
+ExecStart=/opt/omni-edge/venv/bin/python /opt/omni-edge/agent.py
+
+# Graceful shutdown on SIGTERM (agent handles signal internally)
+KillSignal=SIGTERM
+TimeoutStopSec=10
+KillMode=mixed
+
+# Environment — override these for your deployment
+Environment="SENSOR_ID=S-HAMRA-001"
+Environment="SITE_ID=beirut/hamra"
+Environment="MQTT_HOST=mqtt.omni-sense.io"
+Environment="MQTT_PORT=8883"
+Environment="MQTT_CA=/etc/omni/certs/ca.crt"
+Environment="MQTT_CERT=/etc/omni/certs/S-HAMRA-001.crt"
+Environment="MQTT_KEY=/etc/omni/certs/S-HAMRA-001.key"
+Environment="VAD_THRESHOLD=0.005"
+Environment="FIRMWARE_VER=edge-fw-2026.04.1"
+# Uncomment to force simulation mode (no hardware required):
+# Environment="SIMULATE=1"
+
+# Resource limits
+LimitNOFILE=4096
+MemoryMax=128M
+CPUQuota=50%
+
+# Security hardening
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=false       # must be false — we need /dev/i2c-*
+DeviceAllow=/dev/i2c-1 rw
+DeviceAllow=/dev/i2c-0 rw
+ReadWritePaths=/var/log /tmp
+NoNewPrivileges=true
+CapabilityBoundingSet=
+
+# Auto-restart on failure with back-off
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=120
+StartLimitBurst=5
+
+# Structured logging to journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=omni-edge
+
+[Install]
+WantedBy=multi-user.target

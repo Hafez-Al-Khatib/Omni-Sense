@@ -1,0 +1,1303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Omni-Sense — Full System Architecture</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #0d1117; color: #c9d1d9; font-family: 'Segoe UI', system-ui, sans-serif; overflow: hidden; }
+
+  #toolbar {
+    position: fixed; top: 0; left: 0; right: 0; height: 48px;
+    background: #161b22; border-bottom: 1px solid #30363d;
+    display: flex; align-items: center; gap: 12px; padding: 0 16px; z-index: 100;
+  }
+  #toolbar h1 { font-size: 15px; font-weight: 600; color: #f0f6fc; flex: 1; }
+  .tb-btn {
+    padding: 5px 12px; border-radius: 6px; border: 1px solid #30363d;
+    background: #21262d; color: #c9d1d9; cursor: pointer; font-size: 12px;
+    transition: background 0.15s;
+  }
+  .tb-btn:hover { background: #30363d; }
+  .tb-sep { width: 1px; height: 24px; background: #30363d; }
+
+  #canvas-wrap {
+    position: fixed; top: 48px; left: 0; right: 320px; bottom: 0;
+    overflow: hidden; cursor: grab;
+  }
+  #canvas-wrap.grabbing { cursor: grabbing; }
+  #canvas { transform-origin: 0 0; }
+
+  /* ── Detail Panel ── */
+  #detail {
+    position: fixed; top: 48px; right: 0; width: 320px; bottom: 0;
+    background: #161b22; border-left: 1px solid #30363d;
+    overflow-y: auto; padding: 20px 16px;
+  }
+  #detail h2 { font-size: 14px; font-weight: 600; color: #f0f6fc; margin-bottom: 4px; }
+  #detail .d-subtitle { font-size: 11px; color: #8b949e; margin-bottom: 14px; }
+  #detail h3 { font-size: 11px; font-weight: 600; color: #8b949e; text-transform: uppercase; letter-spacing: 0.8px; margin: 14px 0 6px; }
+  #detail p, #detail li { font-size: 12px; line-height: 1.6; color: #c9d1d9; }
+  #detail ul { padding-left: 14px; }
+  #detail .badge {
+    display: inline-block; padding: 1px 7px; border-radius: 12px; font-size: 10px; font-weight: 600;
+    margin: 2px 2px 2px 0;
+  }
+  #detail .badge-green { background: #1a4a2a; color: #3fb950; border: 1px solid #2ea04326; }
+  #detail .badge-blue  { background: #0d2a40; color: #58a6ff; border: 1px solid #1f6feb26; }
+  #detail .badge-red   { background: #4a1a1a; color: #f85149; border: 1px solid #da363426; }
+  #detail .badge-orange{ background: #3d2a0a; color: #e3b341; border: 1px solid #d2993226; }
+  #detail .badge-purple{ background: #2a1a4a; color: #a371f7; border: 1px solid #8957e526; }
+  #detail .port-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; }
+  #detail .port-num { font-family: monospace; font-size: 12px; color: #58a6ff; font-weight: 600; min-width: 44px; }
+  #detail code { font-family: monospace; font-size: 11px; background: #21262d; padding: 1px 5px; border-radius: 4px; color: #e3b341; }
+  #detail .endpoint { font-family: monospace; font-size: 11px; margin: 2px 0; }
+  #detail .endpoint .method { color: #3fb950; font-weight: 700; margin-right: 5px; }
+  #detail .endpoint .path { color: #c9d1d9; }
+  #detail .sep { height: 1px; background: #30363d; margin: 14px 0; }
+  #detail .issue { background: #2d1b1b; border-left: 3px solid #f85149; padding: 8px 10px; border-radius: 4px; margin: 6px 0; font-size: 12px; }
+  #detail .suggestion { background: #1a2d1a; border-left: 3px solid #3fb950; padding: 8px 10px; border-radius: 4px; margin: 6px 0; font-size: 12px; }
+
+  /* ── SVG node styles ── */
+  .node { cursor: pointer; transition: filter 0.15s; }
+  .node:hover { filter: brightness(1.3); }
+  .node.selected { filter: brightness(1.5) drop-shadow(0 0 8px rgba(88,166,255,0.8)); }
+
+  /* Legend */
+  #legend {
+    position: fixed; bottom: 16px; left: 16px;
+    background: #161b22cc; border: 1px solid #30363d; border-radius: 8px;
+    padding: 10px 14px; backdrop-filter: blur(4px);
+  }
+  #legend .l-row { display: flex; align-items: center; gap: 6px; margin: 3px 0; font-size: 11px; }
+  #legend .l-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+
+  #zoom-hint { position: fixed; bottom: 16px; right: 336px; font-size: 11px; color: #484f58; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h1>🌊 Omni-Sense — Full System Architecture</h1>
+  <button class="tb-btn" onclick="resetView()">⌖ Reset</button>
+  <button class="tb-btn" onclick="zoomIn()">＋ Zoom In</button>
+  <button class="tb-btn" onclick="zoomOut()">－ Zoom Out</button>
+  <div class="tb-sep"></div>
+  <button class="tb-btn" onclick="fitAll()">⊡ Fit All</button>
+  <button class="tb-btn" onclick="focusLayer('hardware')">Hardware</button>
+  <button class="tb-btn" onclick="focusLayer('edge')">Edge</button>
+  <button class="tb-btn" onclick="focusLayer('ml')">ML Services</button>
+  <button class="tb-btn" onclick="focusLayer('platform')">Platform</button>
+  <button class="tb-btn" onclick="focusLayer('infra')">Infra</button>
+</div>
+
+<div id="canvas-wrap">
+<svg id="canvas" width="2400" height="1800" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <!-- Arrow markers -->
+  <marker id="arr-white" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="#484f58"/>
+  </marker>
+  <marker id="arr-blue" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="#58a6ff"/>
+  </marker>
+  <marker id="arr-green" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="#3fb950"/>
+  </marker>
+  <marker id="arr-orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="#e3b341"/>
+  </marker>
+  <marker id="arr-red" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+    <path d="M0,0 L8,3 L0,6 Z" fill="#f85149"/>
+  </marker>
+
+  <!-- Gradient fills -->
+  <linearGradient id="g-hardware" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#3d1f00"/>
+    <stop offset="100%" stop-color="#1e1000"/>
+  </linearGradient>
+  <linearGradient id="g-edge" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#001e3d"/>
+    <stop offset="100%" stop-color="#000e1e"/>
+  </linearGradient>
+  <linearGradient id="g-eep" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#1a1a3d"/>
+    <stop offset="100%" stop-color="#0d0d1e"/>
+  </linearGradient>
+  <linearGradient id="g-iep" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#1a3d1a"/>
+    <stop offset="100%" stop-color="#0d1e0d"/>
+  </linearGradient>
+  <linearGradient id="g-omni" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#2d1a3d"/>
+    <stop offset="100%" stop-color="#16001e"/>
+  </linearGradient>
+  <linearGradient id="g-infra" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#1a1a1a"/>
+    <stop offset="100%" stop-color="#0d0d0d"/>
+  </linearGradient>
+</defs>
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- LAYER BANDS -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<!-- Hardware Band -->
+<rect x="20" y="20" width="2360" height="220" rx="12" fill="#1a0d00" stroke="#3d2800" stroke-width="1.5"/>
+<text x="40" y="46" font-size="11" font-family="monospace" fill="#7d5000" font-weight="600" letter-spacing="1">HARDWARE LAYER</text>
+
+<!-- Edge / Transport Band -->
+<rect x="20" y="260" width="2360" height="200" rx="12" fill="#00101f" stroke="#003060" stroke-width="1.5"/>
+<text x="40" y="286" font-size="11" font-family="monospace" fill="#005090" font-weight="600" letter-spacing="1">EDGE &amp; TRANSPORT LAYER</text>
+
+<!-- EEP API Band -->
+<rect x="20" y="480" width="2360" height="200" rx="12" fill="#0d0d20" stroke="#2a2a60" stroke-width="1.5"/>
+<text x="40" y="506" font-size="11" font-family="monospace" fill="#4040a0" font-weight="600" letter-spacing="1">API GATEWAY (EEP)</text>
+
+<!-- ML Services Band -->
+<rect x="20" y="700" width="2360" height="230" rx="12" fill="#0d1a0d" stroke="#1a4020" stroke-width="1.5"/>
+<text x="40" y="726" font-size="11" font-family="monospace" fill="#205030" font-weight="600" letter-spacing="1">ML INFERENCE LAYER (IEP1 – IEP4)</text>
+
+<!-- Omni Platform Band -->
+<rect x="20" y="950" width="2360" height="340" rx="12" fill="#160020" stroke="#3a0050" stroke-width="1.5"/>
+<text x="40" y="976" font-size="11" font-family="monospace" fill="#5a0080" font-weight="600" letter-spacing="1">OMNI PLATFORM (EVENT BUS + ORCHESTRATION)</text>
+
+<!-- Infrastructure Band -->
+<rect x="20" y="1310" width="2360" height="200" rx="12" fill="#111" stroke="#2a2a2a" stroke-width="1.5"/>
+<text x="40" y="1336" font-size="11" font-family="monospace" fill="#404040" font-weight="600" letter-spacing="1">INFRASTRUCTURE &amp; OBSERVABILITY</text>
+
+<!-- Kubernetes Band -->
+<rect x="20" y="1530" width="2360" height="200" rx="12" fill="#0d0d0d" stroke="#1a3a1a" stroke-width="1.5"/>
+<text x="40" y="1556" font-size="11" font-family="monospace" fill="#204020" font-weight="600" letter-spacing="1">KUBERNETES / HELM DEPLOYMENT</text>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- LAYER 1: HARDWARE -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<!-- ESP32 -->
+<g class="node" id="node-esp32" onclick="showDetail('esp32')" data-layer="hardware">
+  <rect x="80" y="60" width="200" height="150" rx="10" fill="url(#g-hardware)" stroke="#7d5000" stroke-width="1.5"/>
+  <text x="180" y="85" text-anchor="middle" font-size="24">🔌</text>
+  <text x="180" y="108" text-anchor="middle" font-size="13" font-weight="600" fill="#e3b341">ESP32</text>
+  <text x="180" y="124" text-anchor="middle" font-size="10" fill="#8b6020">INMP441 I2S Microphone</text>
+  <text x="180" y="140" text-anchor="middle" font-size="10" fill="#8b6020">16 kHz · 16-bit PCM</text>
+  <text x="180" y="156" text-anchor="middle" font-size="10" fill="#8b6020">mTLS MQTT pub</text>
+  <text x="180" y="172" text-anchor="middle" font-size="10" fill="#8b6020">ArduinoOTA · Deep Sleep</text>
+  <text x="180" y="195" text-anchor="middle" font-size="9" fill="#6d4010" font-style="italic">hardware/esp32/</text>
+</g>
+
+<!-- RPi Edge Agent -->
+<g class="node" id="node-rpi" onclick="showDetail('rpi')" data-layer="hardware">
+  <rect x="330" y="60" width="200" height="150" rx="10" fill="url(#g-hardware)" stroke="#7d5000" stroke-width="1.5"/>
+  <text x="430" y="85" text-anchor="middle" font-size="24">🍓</text>
+  <text x="430" y="108" text-anchor="middle" font-size="13" font-weight="600" fill="#e3b341">RPi Edge Agent</text>
+  <text x="430" y="124" text-anchor="middle" font-size="10" fill="#8b6020">ADXL345 I2C 200 Hz</text>
+  <text x="430" y="140" text-anchor="middle" font-size="10" fill="#8b6020">↑ upsample ×80 → 16 kHz</text>
+  <text x="430" y="156" text-anchor="middle" font-size="10" fill="#8b6020">SimulatedSensor fallback</text>
+  <text x="430" y="172" text-anchor="middle" font-size="10" fill="#8b6020">Telemetry every 30 frames</text>
+  <text x="430" y="195" text-anchor="middle" font-size="9" fill="#6d4010" font-style="italic">hardware/rpi_edge_agent/</text>
+</g>
+
+<!-- Simulator -->
+<g class="node" id="node-sim" onclick="showDetail('sim')" data-layer="hardware">
+  <rect x="580" y="60" width="200" height="150" rx="10" fill="url(#g-hardware)" stroke="#7d5000" stroke-width="1.5" stroke-dasharray="6,3"/>
+  <text x="680" y="85" text-anchor="middle" font-size="24">🎮</text>
+  <text x="680" y="108" text-anchor="middle" font-size="13" font-weight="600" fill="#e3b341">Sensor Simulator</text>
+  <text x="680" y="124" text-anchor="middle" font-size="10" fill="#8b6020">Synthetic leak cycles</text>
+  <text x="680" y="140" text-anchor="middle" font-size="10" fill="#8b6020">40 WAV clips × 5 faults</text>
+  <text x="680" y="156" text-anchor="middle" font-size="10" fill="#8b6020">Direct bus injection</text>
+  <text x="680" y="172" text-anchor="middle" font-size="10" fill="#8b6020">[CI/Dev mode only]</text>
+  <text x="680" y="195" text-anchor="middle" font-size="9" fill="#6d4010" font-style="italic">omni/edge/simulator.py</text>
+</g>
+
+<!-- OPC-UA SCADA -->
+<g class="node" id="node-scada" onclick="showDetail('scada')" data-layer="hardware">
+  <rect x="830" y="60" width="200" height="150" rx="10" fill="url(#g-hardware)" stroke="#7d5000" stroke-width="1.5"/>
+  <text x="930" y="85" text-anchor="middle" font-size="24">🏭</text>
+  <text x="930" y="108" text-anchor="middle" font-size="13" font-weight="600" fill="#e3b341">OPC-UA / SCADA</text>
+  <text x="930" y="124" text-anchor="middle" font-size="10" fill="#8b6020">Beirut diurnal pressure</text>
+  <text x="930" y="140" text-anchor="middle" font-size="10" fill="#8b6020">5 bar ± 2 bar sinusoid</text>
+  <text x="930" y="156" text-anchor="middle" font-size="10" fill="#8b6020">Peaks 07:00 + 19:00</text>
+  <text x="930" y="172" text-anchor="middle" font-size="10" fill="#8b6020">Valve transients ±0.1 bar</text>
+  <text x="930" y="195" text-anchor="middle" font-size="9" fill="#6d4010" font-style="italic">omni/edge/opcua_gateway.py</text>
+</g>
+
+<!-- Twilio -->
+<g class="node" id="node-twilio" onclick="showDetail('twilio')" data-layer="hardware">
+  <rect x="1080" y="60" width="200" height="150" rx="10" fill="url(#g-hardware)" stroke="#c00060" stroke-width="1.5"/>
+  <text x="1180" y="85" text-anchor="middle" font-size="24">📱</text>
+  <text x="1180" y="108" text-anchor="middle" font-size="13" font-weight="600" fill="#ff6090">Twilio API</text>
+  <text x="1180" y="124" text-anchor="middle" font-size="10" fill="#c06080">HIGH → SMS</text>
+  <text x="1180" y="140" text-anchor="middle" font-size="10" fill="#c06080">CRITICAL → SMS + WhatsApp</text>
+  <text x="1180" y="156" text-anchor="middle" font-size="10" fill="#c06080">Pure urllib (no SDK)</text>
+  <text x="1180" y="172" text-anchor="middle" font-size="10" fill="#c06080">asyncio.to_thread wrapper</text>
+  <text x="1180" y="195" text-anchor="middle" font-size="9" fill="#8d3050" font-style="italic">omni/notify/twilio_service.py</text>
+</g>
+
+<!-- PostGIS / MapBox -->
+<g class="node" id="node-mapbox" onclick="showDetail('mapbox')" data-layer="hardware">
+  <rect x="1330" y="60" width="200" height="150" rx="10" fill="url(#g-hardware)" stroke="#004060" stroke-width="1.5"/>
+  <text x="1430" y="85" text-anchor="middle" font-size="24">🗺️</text>
+  <text x="1430" y="108" text-anchor="middle" font-size="13" font-weight="600" fill="#60c0ff">Mapbox GL JS</text>
+  <text x="1430" y="124" text-anchor="middle" font-size="10" fill="#4090c0">Real-time dashboard</text>
+  <text x="1430" y="140" text-anchor="middle" font-size="10" fill="#4090c0">WebSocket streaming</text>
+  <text x="1430" y="156" text-anchor="middle" font-size="10" fill="#4090c0">Pulse-ring leak anim.</text>
+  <text x="1430" y="172" text-anchor="middle" font-size="10" fill="#4090c0">Pipe RUL color coding</text>
+  <text x="1430" y="195" text-anchor="middle" font-size="9" fill="#305080" font-style="italic">omni/ops_console/dashboard.html</text>
+</g>
+
+<!-- Audit Log -->
+<g class="node" id="node-audit" onclick="showDetail('audit')" data-layer="hardware">
+  <rect x="1580" y="60" width="200" height="150" rx="10" fill="url(#g-hardware)" stroke="#5000c0" stroke-width="1.5"/>
+  <text x="1680" y="85" text-anchor="middle" font-size="24">🔐</text>
+  <text x="1680" y="108" text-anchor="middle" font-size="13" font-weight="600" fill="#c080ff">Audit Log</text>
+  <text x="1680" y="124" text-anchor="middle" font-size="10" fill="#9060c0">Ed25519 signatures</text>
+  <text x="1680" y="140" text-anchor="middle" font-size="10" fill="#9060c0">Merkle hash chain</text>
+  <text x="1680" y="156" text-anchor="middle" font-size="10" fill="#9060c0">WORM append-only</text>
+  <text x="1680" y="172" text-anchor="middle" font-size="10" fill="#9060c0">Tamper detection</text>
+  <text x="1680" y="195" text-anchor="middle" font-size="9" fill="#6030a0" font-style="italic">omni/common/audit.py</text>
+</g>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- LAYER 2: EDGE & TRANSPORT -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<!-- MQTT Broker -->
+<g class="node" id="node-mqtt" onclick="showDetail('mqtt')" data-layer="edge">
+  <rect x="80" y="300" width="220" height="130" rx="10" fill="url(#g-edge)" stroke="#0060c0" stroke-width="1.5"/>
+  <text x="190" y="323" text-anchor="middle" font-size="22">📡</text>
+  <text x="190" y="345" text-anchor="middle" font-size="13" font-weight="600" fill="#58a6ff">MQTT Broker</text>
+  <text x="190" y="361" text-anchor="middle" font-size="10" fill="#4080b0">Eclipse Mosquitto 2.0</text>
+  <text x="190" y="377" text-anchor="middle" font-size="10" fill="#4080b0">Port 8883 (mTLS)</text>
+  <text x="190" y="393" text-anchor="middle" font-size="10" fill="#4080b0">Topic: omni/sensor/{site}/{id}/</text>
+  <text x="190" y="415" text-anchor="middle" font-size="9" fill="#205080" font-style="italic">eclipse-mosquitto:2.0</text>
+</g>
+
+<!-- MQTT Gateway -->
+<g class="node" id="node-gateway" onclick="showDetail('gateway')" data-layer="edge">
+  <rect x="350" y="300" width="220" height="130" rx="10" fill="url(#g-edge)" stroke="#0060c0" stroke-width="1.5"/>
+  <text x="460" y="323" text-anchor="middle" font-size="22">🔀</text>
+  <text x="460" y="345" text-anchor="middle" font-size="13" font-weight="600" fill="#58a6ff">MQTT Gateway</text>
+  <text x="460" y="361" text-anchor="middle" font-size="10" fill="#4080b0">Validates frames</text>
+  <text x="460" y="377" text-anchor="middle" font-size="10" fill="#4080b0">Publishes → Event Bus</text>
+  <text x="460" y="393" text-anchor="middle" font-size="10" fill="#4080b0">PSUBSCRIBE * pattern</text>
+  <text x="460" y="415" text-anchor="middle" font-size="9" fill="#205080" font-style="italic">omni/edge/gateway.py</text>
+</g>
+
+<!-- Redis Bus -->
+<g class="node" id="node-redis-bus" onclick="showDetail('redis-bus')" data-layer="edge">
+  <rect x="620" y="300" width="220" height="130" rx="10" fill="url(#g-edge)" stroke="#c03030" stroke-width="1.5"/>
+  <text x="730" y="323" text-anchor="middle" font-size="22">⚡</text>
+  <text x="730" y="345" text-anchor="middle" font-size="13" font-weight="600" fill="#ff7070">Redis Pub/Sub Bus</text>
+  <text x="730" y="361" text-anchor="middle" font-size="10" fill="#c06060">Port 6379 · redis:7.2</text>
+  <text x="730" y="377" text-anchor="middle" font-size="10" fill="#c06060">AOF persistence</text>
+  <text x="730" y="393" text-anchor="middle" font-size="10" fill="#c06060">256MB LRU · 12 topics</text>
+  <text x="730" y="415" text-anchor="middle" font-size="9" fill="#802020" font-style="italic">omni/common/redis_bus.py ↔ InMemoryBus</text>
+</g>
+
+<!-- Topic list -->
+<g class="node" id="node-topics" onclick="showDetail('topics')" data-layer="edge">
+  <rect x="890" y="280" width="280" height="160" rx="10" fill="#0a0a1a" stroke="#30306080" stroke-width="1.5"/>
+  <text x="1030" y="300" text-anchor="middle" font-size="11" font-weight="600" fill="#6060a0">BUS TOPICS</text>
+  <text x="910" y="318" font-size="10" fill="#5060a0">acoustic_frame.v1</text>
+  <text x="910" y="333" font-size="10" fill="#5060a0">telemetry.v1</text>
+  <text x="910" y="348" font-size="10" fill="#5060a0">detection.result.v1</text>
+  <text x="910" y="363" font-size="10" fill="#5060a0">leak.hypothesis.v1</text>
+  <text x="910" y="378" font-size="10" fill="#5060a0">alert.new.v1  /  alert.state.v1</text>
+  <text x="910" y="393" font-size="10" fill="#5060a0">work_order.v1</text>
+  <text x="910" y="408" font-size="10" fill="#5060a0">notify.v1  /  audit.v1</text>
+  <text x="910" y="423" font-size="10" fill="#5060a0">twin_update.v1  /  scada.reading.v1</text>
+</g>
+
+<!-- Signal QA -->
+<g class="node" id="node-signalqa" onclick="showDetail('signalqa')" data-layer="edge">
+  <rect x="1220" y="300" width="200" height="130" rx="10" fill="url(#g-edge)" stroke="#0060c0" stroke-width="1.5"/>
+  <text x="1320" y="323" text-anchor="middle" font-size="22">🔍</text>
+  <text x="1320" y="345" text-anchor="middle" font-size="13" font-weight="600" fill="#58a6ff">Signal QA</text>
+  <text x="1320" y="361" text-anchor="middle" font-size="10" fill="#4080b0">Dead sensor detection</text>
+  <text x="1320" y="377" text-anchor="middle" font-size="10" fill="#4080b0">Clipping detection</text>
+  <text x="1320" y="393" text-anchor="middle" font-size="10" fill="#4080b0">80 dB amplitude gate</text>
+  <text x="1320" y="415" text-anchor="middle" font-size="9" fill="#205080" font-style="italic">eep/app/services/signal_qa.py</text>
+</g>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- LAYER 3: EEP API GATEWAY -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<!-- EEP Main -->
+<g class="node" id="node-eep" onclick="showDetail('eep')" data-layer="ml">
+  <rect x="200" y="520" width="540" height="140" rx="10" fill="url(#g-eep)" stroke="#5050c0" stroke-width="2"/>
+  <text x="470" y="545" text-anchor="middle" font-size="20">🌐</text>
+  <text x="470" y="567" text-anchor="middle" font-size="14" font-weight="700" fill="#a0a0ff">EEP — API Gateway</text>
+  <text x="470" y="583" text-anchor="middle" font-size="10" fill="#7070c0">Port 8000  ·  FastAPI</text>
+
+  <!-- Mini endpoint list -->
+  <text x="230" y="602" font-size="10" fill="#6060a0">POST /api/v1/diagnose</text>
+  <text x="230" y="617" font-size="10" fill="#6060a0">POST /api/v1/calibrate</text>
+  <text x="430" y="602" font-size="10" fill="#6060a0">GET  /health</text>
+  <text x="430" y="617" font-size="10" fill="#6060a0">GET  /metrics</text>
+  <text x="230" y="635" font-size="10" fill="#4040a0" font-style="italic">Rate limit: 5/min · Max audio: 5 MB · Dispatch threshold: 0.90</text>
+  <text x="230" y="648" font-size="9" fill="#30308080" font-style="italic">eep/app/  ·  omni/eep/orchestrator.py</text>
+</g>
+
+<!-- Omni Orchestrator (in-process) -->
+<g class="node" id="node-orchestrator" onclick="showDetail('orchestrator')" data-layer="ml">
+  <rect x="800" y="520" width="300" height="140" rx="10" fill="url(#g-eep)" stroke="#5050c0" stroke-width="1.5"/>
+  <text x="950" y="545" text-anchor="middle" font-size="18">⚙️</text>
+  <text x="950" y="567" text-anchor="middle" font-size="13" font-weight="600" fill="#a0a0ff">Omni Orchestrator</text>
+  <text x="950" y="583" text-anchor="middle" font-size="10" fill="#7070c0">5-head fan-out · asyncio.gather</text>
+  <text x="820" y="602" font-size="10" fill="#6060a0">XGB  w=0.45  budget=30ms</text>
+  <text x="820" y="617" font-size="10" fill="#6060a0">RF   w=0.25  budget=30ms</text>
+  <text x="820" y="632" font-size="10" fill="#6060a0">CNN  w=0.25  budget=150ms</text>
+  <text x="820" y="647" font-size="10" fill="#6060a0">IF   w=0.05  budget=20ms</text>
+  <text x="990" y="632" font-size="10" fill="#6060a0">OOD  thr=1.0  budget=40ms</text>
+  <text x="820" y="648" font-size="9" fill="#30308080" font-style="italic">omni/eep/orchestrator.py</text>
+</g>
+
+<!-- DSP Feature Extractor -->
+<g class="node" id="node-features" onclick="showDetail('features')" data-layer="ml">
+  <rect x="1160" y="520" width="240" height="140" rx="10" fill="url(#g-eep)" stroke="#5050c0" stroke-width="1.5"/>
+  <text x="1280" y="545" text-anchor="middle" font-size="18">📊</text>
+  <text x="1280" y="567" text-anchor="middle" font-size="13" font-weight="600" fill="#a0a0ff">DSP Features</text>
+  <text x="1280" y="583" text-anchor="middle" font-size="10" fill="#7070c0">Pure NumPy · No librosa</text>
+  <text x="1180" y="602" font-size="10" fill="#6060a0">39-d feature vector</text>
+  <text x="1180" y="617" font-size="10" fill="#6060a0">RMS, ZCR, Kurtosis, Crest</text>
+  <text x="1180" y="632" font-size="10" fill="#6060a0">Centroid, Rolloff, Flatness</text>
+  <text x="1180" y="647" font-size="10" fill="#6060a0">13 MFCCs × mean/std = 26-d</text>
+  <text x="1180" y="648" font-size="9" fill="#30308080" font-style="italic">omni/eep/features.py  _FEATURE_DIM=39</text>
+</g>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- LAYER 4: ML SERVICES -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<!-- IEP1 -->
+<g class="node" id="node-iep1" onclick="showDetail('iep1')" data-layer="ml">
+  <rect x="60" y="740" width="220" height="160" rx="10" fill="url(#g-iep)" stroke="#30a050" stroke-width="1.5"/>
+  <text x="170" y="763" text-anchor="middle" font-size="20">🎵</text>
+  <text x="170" y="785" text-anchor="middle" font-size="13" font-weight="600" fill="#58d07a">IEP1</text>
+  <text x="170" y="801" text-anchor="middle" font-size="10" fill="#40a060">Vibration Feature Extractor</text>
+  <text x="170" y="817" text-anchor="middle" font-size="10" fill="#40a060">Port 8001 · FastAPI</text>
+  <text x="80" y="835" font-size="10" fill="#308050">POST /embed</text>
+  <text x="80" y="850" font-size="10" fill="#308050">208-d embedding</text>
+  <text x="80" y="865" font-size="10" fill="#308050">librosa · soundfile</text>
+  <text x="80" y="883" font-size="9" fill="#20603080" font-style="italic">iep1/app/</text>
+</g>
+
+<!-- IEP2 -->
+<g class="node" id="node-iep2" onclick="showDetail('iep2')" data-layer="ml">
+  <rect x="330" y="740" width="260" height="160" rx="10" fill="url(#g-iep)" stroke="#30a050" stroke-width="2"/>
+  <text x="460" y="763" text-anchor="middle" font-size="20">🧪</text>
+  <text x="460" y="785" text-anchor="middle" font-size="13" font-weight="600" fill="#58d07a">IEP2 — Diagnostic Engine</text>
+  <text x="460" y="801" text-anchor="middle" font-size="10" fill="#40a060">Port 8002 · FastAPI</text>
+  <text x="350" y="819" font-size="10" fill="#308050">IF OOD Gate → XGBoost classify</text>
+  <text x="350" y="835" font-size="10" fill="#308050">5 fault classes + No_Leak</text>
+  <text x="350" y="851" font-size="10" fill="#308050">SHAP explainability</text>
+  <text x="350" y="867" font-size="10" fill="#308050">PSI drift monitoring</text>
+  <text x="350" y="883" font-size="10" fill="#308050">SCADA physics consistency</text>
+  <text x="350" y="883" font-size="9" fill="#20603080" font-style="italic">iep2/app/</text>
+</g>
+
+<!-- IEP3 -->
+<g class="node" id="node-iep3" onclick="showDetail('iep3')" data-layer="ml">
+  <rect x="640" y="740" width="220" height="160" rx="10" fill="url(#g-iep)" stroke="#30a050" stroke-width="1.5"/>
+  <text x="750" y="763" text-anchor="middle" font-size="20">📋</text>
+  <text x="750" y="785" text-anchor="middle" font-size="13" font-weight="600" fill="#58d07a">IEP3 — Dispatch</text>
+  <text x="750" y="801" text-anchor="middle" font-size="10" fill="#40a060">Port 8003 · FastAPI</text>
+  <text x="660" y="819" font-size="10" fill="#308050">POST /api/v1/ticket</text>
+  <text x="660" y="835" font-size="10" fill="#308050">POST /api/v1/feedback</text>
+  <text x="660" y="851" font-size="10" fill="#308050">Active learning loop</text>
+  <text x="660" y="867" font-size="10" fill="#308050">feedback_log.csv → retrain</text>
+  <text x="660" y="883" font-size="9" fill="#20603080" font-style="italic">iep3/app/</text>
+</g>
+
+<!-- IEP4 -->
+<g class="node" id="node-iep4" onclick="showDetail('iep4')" data-layer="ml">
+  <rect x="910" y="740" width="260" height="160" rx="10" fill="url(#g-iep)" stroke="#30a050" stroke-width="2"/>
+  <text x="1040" y="763" text-anchor="middle" font-size="20">🧠</text>
+  <text x="1040" y="785" text-anchor="middle" font-size="13" font-weight="600" fill="#58d07a">IEP4 — Deep CNN</text>
+  <text x="1040" y="801" text-anchor="middle" font-size="10" fill="#40a060">Port 8004 · FastAPI</text>
+  <text x="930" y="819" font-size="10" fill="#308050">Stage 1: AE OOD (recon error)</text>
+  <text x="930" y="835" font-size="10" fill="#308050">Stage 2: 2-D CNN spectrogram</text>
+  <text x="930" y="851" font-size="10" fill="#308050">SA Water 92.44% accuracy</text>
+  <text x="930" y="867" font-size="10" fill="#308050">503 until trained · ONNX/PT</text>
+  <text x="930" y="883" font-size="9" fill="#20603080" font-style="italic">iep4/app/  ·  iep2/models/autoencoder*</text>
+</g>
+
+<!-- ONNX Models -->
+<g class="node" id="node-onnx" onclick="showDetail('onnx')" data-layer="ml">
+  <rect x="1230" y="740" width="220" height="160" rx="10" fill="url(#g-iep)" stroke="#30a050" stroke-width="1.5" stroke-dasharray="5,3"/>
+  <text x="1340" y="763" text-anchor="middle" font-size="20">💾</text>
+  <text x="1340" y="785" text-anchor="middle" font-size="13" font-weight="600" fill="#58d07a">ONNX Models</text>
+  <text x="1250" y="803" font-size="10" fill="#308050">xgb_head.onnx</text>
+  <text x="1250" y="819" font-size="10" fill="#308050">rf_head.onnx</text>
+  <text x="1250" y="835" font-size="10" fill="#308050">autoencoder_ood.onnx</text>
+  <text x="1250" y="851" font-size="10" fill="#308050">autoencoder_threshold.npy</text>
+  <text x="1250" y="867" font-size="10" fill="#308050">omni_threshold.json</text>
+  <text x="1250" y="883" font-size="9" fill="#20603080" font-style="italic">omni/models/  ·  iep2/models/</text>
+</g>
+
+<!-- Weibull RUL -->
+<g class="node" id="node-rul" onclick="showDetail('rul')" data-layer="ml">
+  <rect x="1510" y="740" width="220" height="160" rx="10" fill="url(#g-iep)" stroke="#30a050" stroke-width="1.5"/>
+  <text x="1620" y="763" text-anchor="middle" font-size="20">⏱️</text>
+  <text x="1620" y="785" text-anchor="middle" font-size="13" font-weight="600" fill="#58d07a">Weibull AFT RUL</text>
+  <text x="1530" y="803" font-size="10" fill="#308050">Right-censoring support</text>
+  <text x="1530" y="819" font-size="10" fill="#308050">L-BFGS-B optimizer</text>
+  <text x="1530" y="835" font-size="10" fill="#308050">Features: age, material,</text>
+  <text x="1530" y="851" font-size="10" fill="#308050">topology, pressure, repairs</text>
+  <text x="1530" y="867" font-size="10" fill="#308050">RUL tier → pipe coloring</text>
+  <text x="1530" y="883" font-size="9" fill="#20603080" font-style="italic">omni/cmms/rul_model.py</text>
+</g>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- LAYER 5: OMNI PLATFORM -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<!-- Spatial Fusion -->
+<g class="node" id="node-spatial" onclick="showDetail('spatial')" data-layer="platform">
+  <rect x="60" y="1000" width="200" height="150" rx="10" fill="url(#g-omni)" stroke="#8030c0" stroke-width="1.5"/>
+  <text x="160" y="1023" text-anchor="middle" font-size="18">📍</text>
+  <text x="160" y="1043" text-anchor="middle" font-size="12" font-weight="600" fill="#c080ff">Spatial Fusion</text>
+  <text x="80" y="1061" font-size="10" fill="#9060c0">Weighted centroid</text>
+  <text x="80" y="1077" font-size="10" fill="#9060c0">12s correlation window</text>
+  <text x="80" y="1093" font-size="10" fill="#9060c0">Snap to pipe segment</text>
+  <text x="80" y="1109" font-size="10" fill="#9060c0">Kalman filter (prod)</text>
+  <text x="80" y="1133" font-size="9" fill="#6030a080" font-style="italic">omni/spatial/fusion.py</text>
+</g>
+
+<!-- Alert Engine -->
+<g class="node" id="node-alerts" onclick="showDetail('alerts')" data-layer="platform">
+  <rect x="310" y="1000" width="200" height="150" rx="10" fill="url(#g-omni)" stroke="#8030c0" stroke-width="1.5"/>
+  <text x="410" y="1023" text-anchor="middle" font-size="18">🚨</text>
+  <text x="410" y="1043" text-anchor="middle" font-size="12" font-weight="600" fill="#c080ff">Alert Engine</text>
+  <text x="330" y="1061" font-size="10" fill="#9060c0">Severity scoring</text>
+  <text x="330" y="1077" font-size="10" fill="#9060c0">SLA timers per level</text>
+  <text x="330" y="1093" font-size="10" fill="#9060c0">FSM: NEW→RESOLVED</text>
+  <text x="330" y="1109" font-size="10" fill="#9060c0">6 states · Transitions</text>
+  <text x="330" y="1133" font-size="9" fill="#6030a080" font-style="italic">omni/alerts/engine.py</text>
+</g>
+
+<!-- Dispatch Router -->
+<g class="node" id="node-dispatch" onclick="showDetail('dispatch')" data-layer="platform">
+  <rect x="560" y="1000" width="200" height="150" rx="10" fill="url(#g-omni)" stroke="#8030c0" stroke-width="1.5"/>
+  <text x="660" y="1023" text-anchor="middle" font-size="18">🚐</text>
+  <text x="660" y="1043" text-anchor="middle" font-size="12" font-weight="600" fill="#c080ff">Dispatch Router</text>
+  <text x="580" y="1061" font-size="10" fill="#9060c0">Nearest-crew greedy</text>
+  <text x="580" y="1077" font-size="10" fill="#9060c0">Skill-based filtering</text>
+  <text x="580" y="1093" font-size="10" fill="#9060c0">ETA via haversine</text>
+  <text x="580" y="1109" font-size="10" fill="#9060c0">Prod: OR-Tools VRP</text>
+  <text x="580" y="1133" font-size="9" fill="#6030a080" font-style="italic">omni/dispatch/router.py</text>
+</g>
+
+<!-- CMMS -->
+<g class="node" id="node-cmms" onclick="showDetail('cmms')" data-layer="platform">
+  <rect x="810" y="1000" width="200" height="150" rx="10" fill="url(#g-omni)" stroke="#8030c0" stroke-width="1.5"/>
+  <text x="910" y="1023" text-anchor="middle" font-size="18">🔧</text>
+  <text x="910" y="1043" text-anchor="middle" font-size="12" font-weight="600" fill="#c080ff">CMMS Service</text>
+  <text x="830" y="1061" font-size="10" fill="#9060c0">Pipe segment registry</text>
+  <text x="830" y="1077" font-size="10" fill="#9060c0">RUL predictions</text>
+  <text x="830" y="1093" font-size="10" fill="#9060c0">Repair history</text>
+  <text x="830" y="1109" font-size="10" fill="#9060c0">Predictive maintenance</text>
+  <text x="830" y="1133" font-size="9" fill="#6030a080" font-style="italic">omni/cmms/service.py</text>
+</g>
+
+<!-- MLOps Flywheel -->
+<g class="node" id="node-mlops" onclick="showDetail('mlops')" data-layer="platform">
+  <rect x="1060" y="1000" width="200" height="150" rx="10" fill="url(#g-omni)" stroke="#8030c0" stroke-width="1.5"/>
+  <text x="1160" y="1023" text-anchor="middle" font-size="18">🔄</text>
+  <text x="1160" y="1043" text-anchor="middle" font-size="12" font-weight="600" fill="#c080ff">MLOps Flywheel</text>
+  <text x="1080" y="1061" font-size="10" fill="#9060c0">PSI drift detection</text>
+  <text x="1080" y="1077" font-size="10" fill="#9060c0">Retrain trigger</text>
+  <text x="1080" y="1093" font-size="10" fill="#9060c0">IEP3 feedback loop</text>
+  <text x="1080" y="1109" font-size="10" fill="#9060c0">Golden dataset gate</text>
+  <text x="1080" y="1133" font-size="9" fill="#6030a080" font-style="italic">omni/mlops/</text>
+</g>
+
+<!-- Digital Twin -->
+<g class="node" id="node-twin" onclick="showDetail('twin')" data-layer="platform">
+  <rect x="1310" y="1000" width="200" height="150" rx="10" fill="url(#g-omni)" stroke="#8030c0" stroke-width="1.5"/>
+  <text x="1410" y="1023" text-anchor="middle" font-size="18">👥</text>
+  <text x="1410" y="1043" text-anchor="middle" font-size="12" font-weight="600" fill="#c080ff">Digital Twin Store</text>
+  <text x="1330" y="1061" font-size="10" fill="#9060c0">Per-sensor live state</text>
+  <text x="1330" y="1077" font-size="10" fill="#9060c0">Rolling detect window</text>
+  <text x="1330" y="1093" font-size="10" fill="#9060c0">max 256 per sensor</text>
+  <text x="1330" y="1109" font-size="10" fill="#9060c0">Async-safe with lock</text>
+  <text x="1330" y="1133" font-size="9" fill="#6030a080" font-style="italic">omni/common/store.py</text>
+</g>
+
+<!-- Notify Service -->
+<g class="node" id="node-notify" onclick="showDetail('notify')" data-layer="platform">
+  <rect x="1560" y="1000" width="200" height="150" rx="10" fill="url(#g-omni)" stroke="#8030c0" stroke-width="1.5"/>
+  <text x="1660" y="1023" text-anchor="middle" font-size="18">🔔</text>
+  <text x="1660" y="1043" text-anchor="middle" font-size="12" font-weight="600" fill="#c080ff">Notify Service</text>
+  <text x="1580" y="1061" font-size="10" fill="#9060c0">Routes to Twilio</text>
+  <text x="1580" y="1077" font-size="10" fill="#9060c0">SENT_LOG deque(500)</text>
+  <text x="1580" y="1093" font-size="10" fill="#9060c0">Stub inbox for ops</text>
+  <text x="1580" y="1109" font-size="10" fill="#9060c0">omni_sms_sent_total</text>
+  <text x="1580" y="1133" font-size="9" fill="#6030a080" font-style="italic">omni/notify/service.py</text>
+</g>
+
+<!-- Ops Console -->
+<g class="node" id="node-ops" onclick="showDetail('ops')" data-layer="platform">
+  <rect x="1810" y="1000" width="200" height="150" rx="10" fill="url(#g-omni)" stroke="#8030c0" stroke-width="1.5"/>
+  <text x="1910" y="1023" text-anchor="middle" font-size="18">🖥️</text>
+  <text x="1910" y="1043" text-anchor="middle" font-size="12" font-weight="600" fill="#c080ff">Ops Console</text>
+  <text x="1830" y="1061" font-size="10" fill="#9060c0">Port 8765 WebSocket</text>
+  <text x="1830" y="1077" font-size="10" fill="#9060c0">REST: /api/sensors</text>
+  <text x="1830" y="1093" font-size="10" fill="#9060c0">Heartbeat every 10s</text>
+  <text x="1830" y="1109" font-size="10" fill="#9060c0">ConnectionHub fan-out</text>
+  <text x="1830" y="1133" font-size="9" fill="#6030a080" font-style="italic">omni/ops_console/ws_server.py</text>
+</g>
+
+<!-- WS + Streamlit note -->
+<rect x="60" y="1180" width="1950" height="80" rx="8" fill="#1a001a" stroke="#3a0050" stroke-width="1"/>
+<text x="80" y="1200" font-size="11" font-weight="600" fill="#8040b0">OMNI PLATFORM BUS FLOW</text>
+<text x="80" y="1220" font-size="10" fill="#6030a0">AcousticFrame →[subscribe]→ EEP Orchestrator → DetectionResult →[publish]→ Spatial Fusion → LeakHypothesis →[publish]→ Alert Engine → Alert →[publish]→ Dispatch Router</text>
+<text x="80" y="1238" font-size="10" fill="#6030a0">WorkOrder →[publish]→ IEP3/Notify →[publish]→ Twilio/SMS         AuditEvent →[subscribe]→ Merkle chain appended every message</text>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- LAYER 6: INFRASTRUCTURE -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<!-- TimescaleDB -->
+<g class="node" id="node-tsdb" onclick="showDetail('tsdb')" data-layer="infra">
+  <rect x="80" y="1350" width="200" height="130" rx="10" fill="url(#g-infra)" stroke="#4040a0" stroke-width="1.5"/>
+  <text x="180" y="1373" text-anchor="middle" font-size="20">🗃️</text>
+  <text x="180" y="1393" text-anchor="middle" font-size="12" font-weight="600" fill="#8080e0">TimescaleDB</text>
+  <text x="100" y="1411" font-size="10" fill="#6060b0">Port 5432 · PG 16</text>
+  <text x="100" y="1427" font-size="10" fill="#6060b0">sensor_readings (1d chunks)</text>
+  <text x="100" y="1443" font-size="10" fill="#6060b0">detections (1h chunks)</text>
+  <text x="100" y="1463" font-size="9" fill="#30308080" font-style="italic">timescale-ha:pg16-latest</text>
+</g>
+
+<!-- Redis Cache -->
+<g class="node" id="node-redis" onclick="showDetail('redis')" data-layer="infra">
+  <rect x="320" y="1350" width="200" height="130" rx="10" fill="url(#g-infra)" stroke="#c03030" stroke-width="1.5"/>
+  <text x="420" y="1373" text-anchor="middle" font-size="20">⚡</text>
+  <text x="420" y="1393" text-anchor="middle" font-size="12" font-weight="600" fill="#ff7070">Redis</text>
+  <text x="340" y="1411" font-size="10" fill="#c06060">Port 6379</text>
+  <text x="340" y="1427" font-size="10" fill="#c06060">AOF persistence</text>
+  <text x="340" y="1443" font-size="10" fill="#c06060">256MB LRU cap</text>
+  <text x="340" y="1463" font-size="9" fill="#80202080" font-style="italic">redis:7.2-alpine</text>
+</g>
+
+<!-- Prometheus -->
+<g class="node" id="node-prom" onclick="showDetail('prom')" data-layer="infra">
+  <rect x="560" y="1350" width="200" height="130" rx="10" fill="url(#g-infra)" stroke="#e05000" stroke-width="1.5"/>
+  <text x="660" y="1373" text-anchor="middle" font-size="20">📈</text>
+  <text x="660" y="1393" text-anchor="middle" font-size="12" font-weight="600" fill="#ff9050">Prometheus</text>
+  <text x="580" y="1411" font-size="10" fill="#c07040">Port 9090</text>
+  <text x="580" y="1427" font-size="10" fill="#c07040">Scrapes all /metrics</text>
+  <text x="580" y="1443" font-size="10" fill="#c07040">ServiceMonitors (k8s)</text>
+  <text x="580" y="1463" font-size="9" fill="#80402080" font-style="italic">prom/prometheus:v2.51.0</text>
+</g>
+
+<!-- Grafana -->
+<g class="node" id="node-grafana" onclick="showDetail('grafana')" data-layer="infra">
+  <rect x="800" y="1350" width="200" height="130" rx="10" fill="url(#g-infra)" stroke="#e05000" stroke-width="1.5"/>
+  <text x="900" y="1373" text-anchor="middle" font-size="20">📊</text>
+  <text x="900" y="1393" text-anchor="middle" font-size="12" font-weight="600" fill="#ff9050">Grafana</text>
+  <text x="820" y="1411" font-size="10" fill="#c07040">Port 3000</text>
+  <text x="820" y="1427" font-size="10" fill="#c07040">9 panels · API latency</text>
+  <text x="820" y="1443" font-size="10" fill="#c07040">IEP inference duration</text>
+  <text x="820" y="1463" font-size="9" fill="#80402080" font-style="italic">grafana:10.4.0</text>
+</g>
+
+<!-- WS Server -->
+<g class="node" id="node-wsserver" onclick="showDetail('wsserver')" data-layer="infra">
+  <rect x="1040" y="1350" width="200" height="130" rx="10" fill="url(#g-infra)" stroke="#4040a0" stroke-width="1.5"/>
+  <text x="1140" y="1373" text-anchor="middle" font-size="20">🌐</text>
+  <text x="1140" y="1393" text-anchor="middle" font-size="12" font-weight="600" fill="#8080e0">WS Server</text>
+  <text x="1060" y="1411" font-size="10" fill="#6060b0">Port 8765</text>
+  <text x="1060" y="1427" font-size="10" fill="#6060b0">ConnectionHub fan-out</text>
+  <text x="1060" y="1443" font-size="10" fill="#6060b0">Heartbeat 10s</text>
+  <text x="1060" y="1463" font-size="9" fill="#30308080" font-style="italic">omni/ops_console/ws_server.py</text>
+</g>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- LAYER 7: KUBERNETES -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<!-- Helm Chart -->
+<g class="node" id="node-helm" onclick="showDetail('helm')" data-layer="infra">
+  <rect x="80" y="1570" width="240" height="130" rx="10" fill="#0a100a" stroke="#204020" stroke-width="1.5"/>
+  <text x="200" y="1593" text-anchor="middle" font-size="20">⎈</text>
+  <text x="200" y="1613" text-anchor="middle" font-size="12" font-weight="600" fill="#60a060">Helm Chart</text>
+  <text x="100" y="1631" font-size="10" fill="#407040">Chart v0.1.0 · App v2.0.0</text>
+  <text x="100" y="1647" font-size="10" fill="#407040">Namespace: omni-sense</text>
+  <text x="100" y="1663" font-size="10" fill="#407040">ghcr.io/omni-sense</text>
+  <text x="100" y="1683" font-size="9" fill="#20402080" font-style="italic">k8s/helm/omni-sense/</text>
+</g>
+
+<!-- HPA -->
+<g class="node" id="node-hpa" onclick="showDetail('hpa')" data-layer="infra">
+  <rect x="370" y="1570" width="240" height="130" rx="10" fill="#0a100a" stroke="#204020" stroke-width="1.5"/>
+  <text x="490" y="1593" text-anchor="middle" font-size="20">⚖️</text>
+  <text x="490" y="1613" text-anchor="middle" font-size="12" font-weight="600" fill="#60a060">HPAs</text>
+  <text x="390" y="1631" font-size="10" fill="#407040">omni-platform: 1–5 pods</text>
+  <text x="390" y="1647" font-size="10" fill="#407040">IEP2: 1–3 pods</text>
+  <text x="390" y="1663" font-size="10" fill="#407040">IEP4: 1–3 pods</text>
+  <text x="390" y="1679" font-size="10" fill="#407040">Target: 70% CPU</text>
+</g>
+
+<!-- StatefulSets -->
+<g class="node" id="node-sts" onclick="showDetail('sts')" data-layer="infra">
+  <rect x="660" y="1570" width="240" height="130" rx="10" fill="#0a100a" stroke="#204020" stroke-width="1.5"/>
+  <text x="780" y="1593" text-anchor="middle" font-size="20">💽</text>
+  <text x="780" y="1613" text-anchor="middle" font-size="12" font-weight="600" fill="#60a060">StatefulSets</text>
+  <text x="680" y="1631" font-size="10" fill="#407040">TimescaleDB 10Gi PVC</text>
+  <text x="680" y="1647" font-size="10" fill="#407040">Redis 1Gi PVC</text>
+  <text x="680" y="1663" font-size="10" fill="#407040">Recreate strategy</text>
+  <text x="680" y="1683" font-size="9" fill="#20402080" font-style="italic">k8s/helm/omni-sense/templates/</text>
+</g>
+
+<!-- ServiceMonitors -->
+<g class="node" id="node-sm" onclick="showDetail('sm')" data-layer="infra">
+  <rect x="950" y="1570" width="240" height="130" rx="10" fill="#0a100a" stroke="#204020" stroke-width="1.5"/>
+  <text x="1070" y="1593" text-anchor="middle" font-size="20">📡</text>
+  <text x="1070" y="1613" text-anchor="middle" font-size="12" font-weight="600" fill="#60a060">Prometheus Operator</text>
+  <text x="970" y="1631" font-size="10" fill="#407040">ServiceMonitors per IEP</text>
+  <text x="970" y="1647" font-size="10" fill="#407040">Scrape interval: 15s</text>
+  <text x="970" y="1663" font-size="10" fill="#407040">Ingress: EEP + ops</text>
+  <text x="970" y="1683" font-size="9" fill="#20402080" font-style="italic">servicemonitor.yaml  ·  ingress.yaml</text>
+</g>
+
+
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+<!-- DATA FLOW ARROWS -->
+<!-- ═══════════════════════════════════════════════════════════════════ -->
+
+<!-- ESP32/RPi → MQTT Broker -->
+<line x1="180" y1="210" x2="190" y2="300" stroke="#7d5000" stroke-width="1.5" marker-end="url(#arr-orange)"/>
+<line x1="430" y1="210" x2="250" y2="300" stroke="#7d5000" stroke-width="1.5" marker-end="url(#arr-orange)"/>
+
+<!-- MQTT → Gateway -->
+<line x1="300" y1="365" x2="350" y2="365" stroke="#0060c0" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+
+<!-- Gateway → Redis Bus -->
+<line x1="570" y1="365" x2="620" y2="365" stroke="#0060c0" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+
+<!-- Simulator → Redis Bus -->
+<line x1="680" y1="210" x2="730" y2="300" stroke="#7d5000" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-orange)"/>
+
+<!-- SCADA → Redis Bus (scada.reading topic) -->
+<line x1="930" y1="210" x2="840" y2="300" stroke="#7d5000" stroke-width="1.5" marker-end="url(#arr-orange)"/>
+
+<!-- Redis Bus → EEP Orchestrator (acoustic_frame topic) -->
+<line x1="730" y1="430" x2="470" y2="520" stroke="#ff7070" stroke-width="2" marker-end="url(#arr-red)"/>
+<text x="550" y="488" font-size="9" fill="#803030">acoustic_frame.v1</text>
+
+<!-- EEP → IEP1 -->
+<line x1="300" y1="620" x2="190" y2="740" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+<text x="200" y="688" font-size="9" fill="#3060a0">POST /embed</text>
+
+<!-- EEP → IEP2 -->
+<line x1="420" y1="660" x2="430" y2="740" stroke="#3fb950" stroke-width="2" marker-end="url(#arr-green)"/>
+<text x="435" y="705" font-size="9" fill="#20603040">POST /diagnose</text>
+
+<!-- EEP → IEP3 (fire-and-forget) -->
+<line x1="550" y1="620" x2="700" y2="740" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr-blue)"/>
+<text x="610" y="688" font-size="9" fill="#3060a0">conf≥0.90</text>
+
+<!-- EEP → IEP4 -->
+<line x1="650" y1="660" x2="960" y2="740" stroke="#58a6ff" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+<text x="780" y="708" font-size="9" fill="#3060a0">POST /classify</text>
+
+<!-- EEP ↔ DSP Features -->
+<line x1="740" y1="590" x2="1160" y2="590" stroke="#5050c0" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+<text x="920" y="584" font-size="9" fill="#4040a0">feat vector (41-d)</text>
+
+<!-- Orchestrator → IEP2 (ONNX heads) -->
+<line x1="900" y1="590" x2="460" y2="740" stroke="#ff7070" stroke-width="1.5" marker-end="url(#arr-red)"/>
+
+<!-- Detection → Spatial Fusion -->
+<line x1="300" y1="880" x2="160" y2="1000" stroke="#ff7070" stroke-width="2" marker-end="url(#arr-red)"/>
+<text x="160" y="945" font-size="9" fill="#803030">detection.result.v1</text>
+
+<!-- Spatial → Alerts -->
+<line x1="260" y1="1075" x2="310" y2="1075" stroke="#8030c0" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+<text x="260" y="1068" font-size="9" fill="#5020a0">hypothesis.v1</text>
+
+<!-- Alerts → Dispatch -->
+<line x1="510" y1="1075" x2="560" y2="1075" stroke="#8030c0" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+<text x="510" y="1068" font-size="9" fill="#5020a0">alert.new.v1</text>
+
+<!-- Dispatch → Notify -->
+<line x1="760" y1="1075" x2="1560" y2="1075" stroke="#8030c0" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-blue)"/>
+<text x="1100" y="1068" font-size="9" fill="#5020a0">work_order.v1</text>
+
+<!-- Notify → Twilio -->
+<line x1="1660" y1="1000" x2="1180" y2="210" stroke="#c00060" stroke-width="1.5" stroke-dasharray="6,4" marker-end="url(#arr-red)"/>
+
+<!-- IEP3 Feedback → MLOps -->
+<line x1="760" y1="820" x2="1160" y2="1000" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-green)"/>
+<text x="930" y="920" font-size="9" fill="#20603040">feedback_log.csv</text>
+
+<!-- MLOps → ONNX Models -->
+<line x1="1160" y1="900" x2="1340" y2="740" stroke="#3fb950" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arr-green)"/>
+<text x="1220" y="830" font-size="9" fill="#20603040">retrain</text>
+
+<!-- Platform → TimescaleDB -->
+<line x1="400" y1="1150" x2="180" y2="1350" stroke="#4040a0" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+
+<!-- Platform → Redis -->
+<line x1="650" y1="1150" x2="420" y2="1350" stroke="#c03030" stroke-width="1.5" marker-end="url(#arr-red)"/>
+
+<!-- All services → Prometheus -->
+<line x1="800" y1="900" x2="660" y2="1350" stroke="#e05000" stroke-width="1" stroke-dasharray="3,3" marker-end="url(#arr-orange)"/>
+<text x="700" y="1130" font-size="9" fill="#703010">/metrics scrape</text>
+
+<!-- Prom → Grafana -->
+<line x1="760" y1="1415" x2="800" y2="1415" stroke="#e05000" stroke-width="1.5" marker-end="url(#arr-orange)"/>
+
+<!-- WS Server → Mapbox Dashboard -->
+<line x1="1140" y1="1350" x2="1430" y2="210" stroke="#58a6ff" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#arr-blue)"/>
+<text x="1330" y="780" font-size="9" fill="#3060a0">WebSocket</text>
+
+<!-- Audit events flow -->
+<line x1="1100" y1="1150" x2="1680" y2="210" stroke="#5000c0" stroke-width="1" stroke-dasharray="3,4" marker-end="url(#arr-blue)"/>
+
+</svg>
+</div>
+
+<!-- Detail Panel -->
+<div id="detail">
+  <div id="detail-content">
+    <h2>System Overview</h2>
+    <p class="d-subtitle">Click any component to inspect it</p>
+    <div class="sep"></div>
+    <h3>Architecture Layers</h3>
+    <p>This diagram shows the complete Omni-Sense platform across 6 layers. Each component is clickable for detailed specs, endpoints, dependencies, and architectural critique notes.</p>
+    <div class="sep"></div>
+    <h3>Services</h3>
+    <p><span class="badge badge-orange">Hardware</span> ESP32 · RPi · Simulator · SCADA</p>
+    <p><span class="badge badge-blue">Edge</span> MQTT · Gateway · Redis Bus</p>
+    <p><span class="badge badge-purple">API</span> EEP :8000 · Orchestrator · DSP</p>
+    <p><span class="badge badge-green">ML</span> IEP1:8001 · IEP2:8002 · IEP3:8003 · IEP4:8004</p>
+    <p><span class="badge badge-purple">Platform</span> Spatial · Alerts · Dispatch · CMMS · MLOps</p>
+    <p><span class="badge badge-blue">Infra</span> TimescaleDB · Redis · Prometheus · Grafana</p>
+    <div class="sep"></div>
+    <h3>Key Metrics</h3>
+    <p>~110k LOC · 111 tests passing · 12 bus topics · 5 ML heads · 6 services</p>
+  </div>
+</div>
+
+<div id="legend">
+  <div class="l-row"><div class="l-dot" style="background:#7d5000"></div> Hardware / External</div>
+  <div class="l-row"><div class="l-dot" style="background:#0060c0"></div> Edge / Transport</div>
+  <div class="l-row"><div class="l-dot" style="background:#5050c0"></div> API Gateway (EEP)</div>
+  <div class="l-row"><div class="l-dot" style="background:#30a050"></div> ML Services (IEP)</div>
+  <div class="l-row"><div class="l-dot" style="background:#8030c0"></div> Omni Platform</div>
+  <div class="l-row"><div class="l-dot" style="background:#4040a0"></div> Infrastructure</div>
+  <div class="l-row"><div class="l-dot" style="background:#204020; border: 1px dashed #407040"></div> Kubernetes / Helm</div>
+</div>
+<div id="zoom-hint">Scroll to zoom · Drag to pan · Click nodes for details</div>
+
+<script>
+// ── Pan & Zoom ──────────────────────────────────────────────────────────────
+const wrap = document.getElementById('canvas-wrap');
+const canvas = document.getElementById('canvas');
+let scale = 0.55, tx = 20, ty = 20;
+let dragging = false, lastX, lastY;
+
+function applyTransform() {
+  canvas.style.transform = `translate(${tx}px,${ty}px) scale(${scale})`;
+}
+applyTransform();
+
+wrap.addEventListener('wheel', e => {
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? 0.9 : 1.1;
+  const rect = wrap.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  tx = mx - (mx - tx) * delta;
+  ty = my - (my - ty) * delta;
+  scale *= delta;
+  applyTransform();
+}, { passive: false });
+
+wrap.addEventListener('mousedown', e => {
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+  wrap.classList.add('grabbing');
+});
+window.addEventListener('mouseup', () => { dragging = false; wrap.classList.remove('grabbing'); });
+window.addEventListener('mousemove', e => {
+  if (!dragging) return;
+  tx += e.clientX - lastX; ty += e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  applyTransform();
+});
+
+function resetView() { scale = 0.55; tx = 20; ty = 20; applyTransform(); }
+function zoomIn() { scale = Math.min(scale * 1.3, 4); applyTransform(); }
+function zoomOut() { scale = Math.max(scale * 0.77, 0.1); applyTransform(); }
+
+function fitAll() { scale = 0.42; tx = 10; ty = 10; applyTransform(); }
+
+const layerY = { hardware: 60, edge: 280, ml: 510, platform: 960, infra: 1330, kubernetes: 1540 };
+function focusLayer(layer) {
+  const y = layerY[layer] || 0;
+  scale = 0.8; tx = -100; ty = -(y * scale) + 60;
+  applyTransform();
+}
+
+// ── Detail Panel ────────────────────────────────────────────────────────────
+const details = {
+  esp32: {
+    title: 'ESP32 Sensor Node',
+    subtitle: 'hardware/esp32/omni_sensor/omni_sensor.ino',
+    badges: [['orange','Firmware'],['blue','MQTT Client']],
+    sections: {
+      'Hardware': 'INMP441 I2S microphone at 16 kHz, 16-bit PCM. I2S pins: WS=15, SCK=14, SD=32.',
+      'Capabilities': 'Energy VAD (voice activity detection), ArduinoOTA firmware updates, deep sleep between recordings, WiFiClientSecure mTLS, custom base64 encoder (no library dependency).',
+      'Protocol': 'PubSubClient MQTT over TLS to broker:8883. Topic: omni/sensor/{site_id}/{sensor_id}/acoustic',
+      'Issues': null,
+      '⚠️ Design Issues': '1. Linear upsampling (×80, 200Hz→16kHz) on the RPi side creates spectral aliasing above 100Hz. Leak detection targets 500–3000Hz — this is a real accuracy problem. Fix: polyphase FIR resampler.',
+      '✅ Strengths': 'Deep sleep extends battery life significantly. No SDK dependency for base64 reduces flash footprint. ArduinoOTA enables field updates without physical access.'
+    }
+  },
+  rpi: {
+    title: 'Raspberry Pi Edge Agent',
+    subtitle: 'hardware/rpi_edge_agent/agent.py',
+    badges: [['orange','Python Agent'],['blue','MQTT Publisher'],['green','smbus2']],
+    sections: {
+      'Hardware': 'ADXL345 accelerometer via I2C (smbus2). FIFO at 200 Hz, Z-axis normalized to g.',
+      'Upsampling': '200 Hz → 16 kHz via linear interpolation (×80). Produces 15,600 samples per 0.975s frame. ⚠️ Linear interpolation creates aliasing — use scipy.signal.resample_poly(up=80, down=1) instead.',
+      'Fallback': 'SimulatedSensor generates: pipe-ambient + narrow-band leak hiss + white noise.',
+      'Reliability': 'Telemetry every 30 frames (battery via sysfs, CPU temp, RTC drift). SIGTERM/SIGINT graceful shutdown via threading.Event. Exponential backoff reconnect on MQTT failure.'
+    }
+  },
+  sim: {
+    title: 'Sensor Simulator',
+    subtitle: 'omni/edge/simulator.py',
+    badges: [['orange','Dev/CI Only'],['blue','Direct Bus']],
+    sections: {
+      'Purpose': 'Synthetic sensor for demo and CI. Injects AcousticFrame messages directly onto the event bus without MQTT.',
+      'Data Source': '40 WAV clips × 5 fault types × 4 conditions = 800 clips. Regime schedule alternates quiet/leak cycles.',
+      'Note': 'Bypasses MQTT → Gateway path. Useful for testing but means CI never exercises the mTLS transport layer.'
+    }
+  },
+  scada: {
+    title: 'OPC-UA / SCADA Gateway',
+    subtitle: 'omni/edge/opcua_gateway.py',
+    badges: [['orange','Stub'],['blue','Beirut Model']],
+    sections: {
+      'Model': 'Beirut diurnal pressure: base 5 bar ± 2 bar sinusoidal, peaking at 07:00 and 19:00. ±0.1 bar random noise. Occasional valve transients.',
+      'Integration': 'Publishes ScadaReading to scada.reading.v1 bus topic.',
+      '⚠️ Critical Gap': 'SCADA pressure readings are published to the bus but NOT consumed by the EEP orchestrator\'s handle_frame(). The pressure-physics consistency check in IEP2 uses a hardcoded pressure_bar=3.0. SCADA data has no effect on the actual leak probability.',
+      '✅ Fix': 'Subscribe to scada.reading.v1 in orchestrator.py. Cache the latest reading per site_id. In handle_frame(), pull the cached reading and pass its pressure_bar to extract_features_with_meta() and apply a pressure multiplier to fused score.'
+    }
+  },
+  twilio: {
+    title: 'Twilio SMS/WhatsApp',
+    subtitle: 'omni/notify/twilio_service.py',
+    badges: [['red','External API'],['orange','urllib only']],
+    sections: {
+      'Routing': 'HIGH severity → SMS. CRITICAL → SMS + WhatsApp.',
+      'Implementation': 'Pure urllib HTTPS POST to Twilio REST API. asyncio.to_thread() wrapper. No twilio-python SDK dependency.',
+      'State': 'SENT_LOG deque(maxlen=500) for audit. omni_sms_sent_total Prometheus counter.',
+      '⚠️ Issue': 'No retry on transient 5xx from Twilio. No rate-limit handling (429). Production needs exponential backoff with dead-letter queue.'
+    }
+  },
+  mapbox: {
+    title: 'Mapbox GL JS Dashboard',
+    subtitle: 'omni/ops_console/dashboard.html',
+    badges: [['blue','WebSocket'],['orange','Real-time']],
+    sections: {
+      'Features': 'Dark-v11 style, centered Beirut. 9-segment pipe GeoJSON colored by RUL tier. Pulse-ring CSS animation when fused_p_leak > 0.6.',
+      'Data Feed': 'WebSocket from ws_server.py at port 8765. Handles: detection, alert, hypothesis, telemetry, heartbeat, sensor_twin, work_order events.',
+      '⚠️ Gap': 'Hardcoded 4-segment PIPE_NETWORK. Should load real Beirut pipe GeoJSON (OSM data available). TDOA localization ellipses not yet rendered.'
+    }
+  },
+  audit: {
+    title: 'Ed25519 Audit Log',
+    subtitle: 'omni/common/audit.py',
+    badges: [['purple','Cryptographic'],['red','WORM']],
+    sections: {
+      'Design': 'Ed25519 signatures + Merkle hash chain. WORM (Write Once Read Many) append-only log. Tamper detection by re-hashing chain.',
+      'Coverage': 'Every AuditEvent is appended to the chain. Events include: detection results, alerts created, work orders dispatched, notifications sent.',
+      'Strength': 'Suitable for water utility regulatory compliance. Chain state included in ops console heartbeat.'
+    }
+  },
+  mqtt: {
+    title: 'MQTT Broker (Mosquitto)',
+    subtitle: 'omni/configs/mosquitto.conf · docker-compose',
+    badges: [['blue','mTLS :8883'],['orange','eclipse-mosquitto:2.0']],
+    sections: {
+      'Security': 'mTLS port 8883. TLS certs: CA signed, 2048-bit RSA. ACL file controls per-sensor publish rights.',
+      'Topics': 'omni/sensor/{site_id}/{sensor_id}/acoustic — PCM16 base64\nomni/sensor/{site_id}/{sensor_id}/telemetry — health metrics',
+      '⚠️ Gap': 'MQTT broker has no persistence configured for QoS 1/2. If broker restarts during a sensor burst, frames are lost. Enable persistence with the mosquitto persistence_location config.'
+    }
+  },
+  gateway: {
+    title: 'MQTT Gateway',
+    subtitle: 'omni/edge/gateway.py',
+    badges: [['blue','PSUBSCRIBE *'],['green','Validator']],
+    sections: {
+      'Function': 'Subscribes to MQTT with PSUBSCRIBE * pattern. Validates incoming frames against AcousticFrame Pydantic schema. Publishes valid frames to the event bus (Redis or InMemory).',
+      'Reconnect': 'Exponential backoff: 1s → 30s, 2× factor.',
+      'Stub Mode': 'In CI, replays JSON fixture files without a real MQTT broker.',
+      '⚠️ Gap': 'No per-sensor deduplication window. If a sensor re-sends a frame (QoS retry), the duplicate propagates to ML inference.'
+    }
+  },
+  'redis-bus': {
+    title: 'Redis Pub/Sub Event Bus',
+    subtitle: 'omni/common/redis_bus.py',
+    badges: [['red','Redis :6379'],['green','InMemoryBus fallback']],
+    sections: {
+      'API': 'Identical publish/subscribe/run/stop API to InMemoryBus. Drop-in replacement.',
+      'Config': 'redis:7.2-alpine. AOF persistence. 256MB LRU cap. Exponential backoff reconnect.',
+      '⚠️ Design Issue': 'Redis Pub/Sub is fire-and-forget — no message durability. If the omni-platform subscriber is restarting when a burst of frames arrive, they are lost. Should consider Redis Streams (XADD/XREAD) for durability with consumer groups.',
+      '✅ Fix': 'Replace PUBLISH/SUBSCRIBE with XADD (producer) + XREADGROUP (consumer) for at-least-once delivery. Maintain consumer group "omni-eep" per service.'
+    }
+  },
+  topics: {
+    title: 'Bus Topics',
+    subtitle: 'omni/common/bus.py',
+    badges: [['purple','12 Topics']],
+    sections: {
+      'Topics': 'acoustic_frame.v1, telemetry.v1, detection.result.v1, leak.hypothesis.v1, alert.new.v1, alert.state.v1, work_order.v1, notify.v1, audit.v1, twin_update.v1, scada.reading.v1',
+      'Schema': 'Each topic has a corresponding Pydantic model in omni/common/schemas.py.',
+      '⚠️ Gap': 'No topic versioning strategy. When AcousticFrame schema evolves, all consumers break simultaneously. Use envelope pattern: {"v":1, "type":"AcousticFrame", "payload":{...}}.'
+    }
+  },
+  signalqa: {
+    title: 'Signal QA',
+    subtitle: 'eep/app/services/signal_qa.py',
+    badges: [['blue','Pre-filter'],['orange','80dB gate']],
+    sections: {
+      'Checks': 'Dead sensor (all-zero frames), clipping detection (samples at ±32767), 80 dB amplitude gate.',
+      '⚠️ Gap': 'Signal QA runs in EEP but NOT in the Omni orchestrator path. Frames arriving via Redis bus skip the QA check entirely. Both paths need the same validation.',
+      '✅ Fix': 'Move signal_qa into the gateway validator, before frames reach the bus.'
+    }
+  },
+  eep: {
+    title: 'EEP — API Gateway',
+    subtitle: 'eep/app/main.py · omni/eep/orchestrator.py',
+    badges: [['blue','Port 8000'],['green','FastAPI'],['orange','Rate: 5/min']],
+    sections: {
+      'Endpoints': 'POST /api/v1/diagnose · POST /api/v1/calibrate · GET /health · GET /metrics',
+      'Pipeline': '1. Signal QA check\n2. Baseline heuristic (80dB)\n3. IEP1: YAMNet embedding\n4. IEP2: OOD gate + XGBoost\n5. IEP4: CNN (parallel, non-fatal)\n6. IEP3: fire-and-forget (conf ≥ 0.90)',
+      'Config': 'RATE_LIMIT: 5/min, MAX_AUDIO_SIZE_MB: 5.0, DISPATCH_CONFIDENCE_THRESHOLD: 0.90',
+      '⚠️ Critical Gap': 'No authentication. Any client can POST audio to /classify. No JWT, no API key, no mTLS for REST.',
+      '⚠️ Gap 2': 'No distributed trace IDs. A slow response cannot be attributed to which IEP without OpenTelemetry.',
+      '✅ Fix': 'Add python-jose JWT middleware. Add OTLP span context to all IEP HTTP calls.'
+    }
+  },
+  orchestrator: {
+    title: 'Omni Orchestrator',
+    subtitle: 'omni/eep/orchestrator.py',
+    badges: [['purple','5 ML heads'],['blue','asyncio.gather'],['orange','ONNX/stub fallback']],
+    sections: {
+      'Weights': 'XGB=0.45, RF=0.25, CNN=0.25, IF=0.05',
+      'Budgets': 'XGB/RF: 30ms, CNN: 150ms, IF: 20ms, OOD: 40ms. Timeout → fallback=0.3.',
+      'ONNX': 'Loads xgb_head.onnx and rf_head.onnx from omni/models/. Falls back to physics stubs if absent.',
+      '⚠️ Critical Gap': 'head_cnn() is NOT calling IEP4. It uses XGB output × 0.95 + 0.05 × stub_cnn — a perturbed duplicate. IEP4 is a separate service but its predictions never reach the fusion weights.',
+      '⚠️ Gap 2': 'Feature attribution uses hardcoded feature names that may not match the ONNX model\'s training features if weights are replaced.',
+      '✅ Fix CNN': 'Add HTTP call to IEP4 /classify_raw in head_cnn() with 120ms timeout, falling back to stub. This makes the 0.25 CNN weight meaningful.'
+    }
+  },
+  features: {
+    title: 'DSP Feature Extractor',
+    subtitle: 'omni/eep/features.py',
+    badges: [['green','Pure NumPy'],['blue','39-d vector'],['orange','No librosa/scipy']],
+    sections: {
+      'Dimensions': '_FEATURE_DIM = 39 + 2 meta = 41-d with pipe_material + pressure.',
+      'Layout': '[rms_mean, rms_std, zcr_mean, zcr_std, kurtosis, skewness, crest_factor, centroid×2, rolloff×2, flatness×2, 13 MFCCs × mean+std = 26]',
+      'Quality': 'Custom HTK mel filterbank, DCT-II via matrix mult, Hann-windowed STFT. 20 physics tests passing.',
+      '⚠️ Note': 'IEP1 produces 208-d YAMNet embeddings while the orchestrator uses 39-d DSP features. The two paths operate in different feature spaces with no reconciliation layer.'
+    }
+  },
+  iep1: {
+    title: 'IEP1 — Vibration Feature Extractor',
+    subtitle: 'iep1/app/',
+    badges: [['green','Port 8001'],['blue','208-d YAMNet-style'],['orange','librosa']],
+    sections: {
+      'Output': '208-dimensional vibration embedding.',
+      'Stack': 'librosa, soundfile, numpy. No TensorFlow/PyTorch at inference.',
+      '⚠️ Mismatch': 'IEP1 output (208-d) feeds IEP2 which was later updated to use 39-d DSP features. The two are not integrated — IEP1→IEP2 is the standalone microservice path, while the Omni orchestrator uses DSP features directly. This creates TWO parallel but disconnected feature pipelines.',
+      '✅ Fix': 'Either: (a) retire IEP1 and have EEP call DSP features internally, or (b) update IEP2 to accept EITHER 208-d or 39-d embeddings with a flag.'
+    }
+  },
+  iep2: {
+    title: 'IEP2 — Diagnostic & Safety Engine',
+    subtitle: 'iep2/app/',
+    badges: [['green','Port 8002'],['blue','XGBoost + IF'],['orange','SHAP']],
+    sections: {
+      'Pipeline': 'Stage 1: Isolation Forest OOD gate. Stage 2: XGBoost classifier (5 faults + No_Leak). Calibrated probabilities.',
+      'Physics': 'SCADA pressure consistency check per fault type. e.g. Longitudinal_Crack requires 0.5–5.5 bar.',
+      'Monitoring': 'PSI drift detector with α=0.5 Laplace smoothing. SHAP feature importance.',
+      'ONNX': 'xgb_head.onnx and rf_head.onnx exported via skl2onnx. autoencoder_ood.onnx for IEP4.',
+      '⚠️ Gap': 'pressure_bar in the orchestrator path is hardcoded to 3.0. The SCADA gateway publishes real pressure but it never reaches IEP2\'s physics gate.'
+    }
+  },
+  iep3: {
+    title: 'IEP3 — Dispatch & Active Learning',
+    subtitle: 'iep3/app/',
+    badges: [['green','Port 8003'],['blue','Active Learning'],['orange','Feedback Loop']],
+    sections: {
+      'Tickets': 'POST /api/v1/ticket creates maintenance ticket when EEP confidence ≥ 0.90.',
+      'Feedback': 'POST /api/v1/feedback/{ticket_id} records technician ground-truth correction to feedback_log.csv.',
+      'Active Learning': 'feedback_log.csv feeds train_omni_heads.py retraining pipeline. Loop: deploy → observe → feedback → retrain → deploy.',
+      '⚠️ Gap': 'Feedback logging and retrain pipeline exist but are NOT connected. Writing to feedback_log.csv does NOT trigger retraining. The loop is broken at this joint.',
+      '✅ Fix': 'Add a FileWatcher or scheduled job that checks feedback_log.csv size; when ≥ N new records, call subprocess.run(["python", "scripts/train_omni_heads.py", ...]) and reload ONNX models in orchestrator.'
+    }
+  },
+  iep4: {
+    title: 'IEP4 — Deep CNN Classifier',
+    subtitle: 'iep4/app/',
+    badges: [['green','Port 8004'],['blue','Two-Stage Pipeline'],['red','Untrained → 503']],
+    sections: {
+      'Stage 1': 'CNN Autoencoder OOD detection (Taiwan Water Corp design, 99.07% acc). Reconstruction error > threshold → is_ood=True.',
+      'Stage 2': '2-D CNN spectrogram classifier (SA Water 92.44% acc). Log-magnitude linear-frequency STFT → Leak / No_Leak.',
+      'Autoencoder': 'Architecture: (1,513,157)→encode→(8,129,40)→decode→(1,513,157). Stride-2 ConvTranspose2d exact reconstruction.',
+      'Degradation': 'CNN not trained → HTTP 503 (classification fails gracefully, IEP2 always available). Autoencoder not trained → is_ood=False always.',
+      '⚠️ Critical Gap': 'IEP4 is not wired into the Omni orchestrator\'s head_cnn(). Its predictions are siloed. The CNN fusion weight (0.25) uses a perturbed XGB score, not real CNN output.',
+      '✅ Fix': 'Expose /classify_raw endpoint accepting PCM bytes. Wire head_cnn() to call it with asyncio timeout, fallback to stub.'
+    }
+  },
+  onnx: {
+    title: 'ONNX Model Store',
+    subtitle: 'omni/models/ · iep2/models/',
+    badges: [['orange','Not committed'],['blue','Runtime artifacts'],['red','Requires training']],
+    sections: {
+      'Models': 'xgb_head.onnx, rf_head.onnx (from train_omni_heads.py)\nautoencoder_ood.onnx (from train_autoencoder.py)\nautoencoder_threshold.npy, omni_threshold.json',
+      'Training Commands': 'python scripts/train_omni_heads.py --clips-dir data/synthesized --output-dir omni/models\npython scripts/train_autoencoder.py --clips-dir data/synthesized --output-dir iep2/models\npython scripts/train_cnn.py --clips-dir data/synthesized --output-dir iep4/models --epochs 150 --binary',
+      '⚠️ Gap': 'Models not in git (correct — too large). But CI test-omni job passes without real models because stubs activate. Model regression gate only runs on [model] commits.',
+      '✅ Fix': 'Add a DVC (Data Version Control) or MLflow tracking server reference so model versions are reproducible.'
+    }
+  },
+  rul: {
+    title: 'Weibull AFT RUL Model',
+    subtitle: 'omni/cmms/rul_model.py',
+    badges: [['purple','Pure NumPy'],['blue','Right-censoring'],['orange','L-BFGS-B']],
+    sections: {
+      'Algorithm': 'Accelerated Failure Time (AFT) model with Weibull distribution. Right-censoring support for pipes still operational.',
+      'Features': 'Pipe age, material, topology (series/parallel), repair count, average pressure, recent leak detections.',
+      'Output': 'RUL estimate in days. Tier: GREEN (>2yr) / YELLOW (6mo–2yr) / ORANGE (1–6mo) / RED (<1mo). Drives pipe coloring in Mapbox dashboard.',
+      '⚠️ Gap': 'Training data for RUL is synthetic — no real pipe failure history. Consider integrating OECD water infrastructure aging datasets for Lebanon.'
+    }
+  },
+  spatial: {
+    title: 'Spatial Fusion',
+    subtitle: 'omni/spatial/fusion.py',
+    badges: [['purple','Weighted centroid'],['orange','12s window']],
+    sections: {
+      'Algorithm': 'Weighted centroid triangulation. Snaps to nearest pipe segment.',
+      'Window': '12-second correlation window for multi-sensor events.',
+      '⚠️ Critical Gap': 'Hardcoded 4-segment PIPE_NETWORK with synthetic coordinates. No PostGIS integration. Real Beirut pipe network GeoJSON exists (OSM) but is not loaded.',
+      '⚠️ Gap 2': 'No TDOA (Time Difference of Arrival) acoustic localization. With 3+ sensors, cross-correlation peak detection gives sub-meter accuracy — far better than weighted centroid.',
+      '✅ Fix': 'Load pipe network from data/beirut_pipes.geojson. Add tdoa.py module using cross-correlation between simultaneous AcousticFrames from co-located sensors.'
+    }
+  },
+  alerts: {
+    title: 'Alert Engine',
+    subtitle: 'omni/alerts/engine.py',
+    badges: [['purple','FSM'],['blue','6 states'],['orange','SLA timers']],
+    sections: {
+      'Severity Scoring': 'Composite of: ML confidence + flow rate + pipe criticality + population density near pipe.',
+      'FSM': 'NEW → ACKNOWLEDGED → DISPATCHED → ON_SITE → RESOLVED → VERIFIED. Transitions trigger bus events.',
+      'SLA': 'Per-severity time limits. Escalation on breach.',
+      '⚠️ Gap': 'No alert deduplication — if spatial fusion emits two hypotheses for the same event (e.g., slightly different correlation windows), two alerts are created for the same physical leak.'
+    }
+  },
+  dispatch: {
+    title: 'Dispatch Router',
+    subtitle: 'omni/dispatch/router.py',
+    badges: [['purple','Greedy nearest'],['orange','Prod: OR-Tools VRP']],
+    sections: {
+      'Algorithm': 'Greedy nearest-crew assignment with skill-based filtering. ETA via haversine distance.',
+      'Production Path': 'Comments note OR-Tools VRP as the production algorithm — handles multi-crew, multi-job optimization.',
+      '⚠️ Gap': 'Crew locations are static in the registry. Real crews move. No live crew location tracking (GPS feed integration missing).'
+    }
+  },
+  cmms: {
+    title: 'CMMS Service',
+    subtitle: 'omni/cmms/service.py',
+    badges: [['purple','Asset Registry'],['blue','RUL'],['green','Repair History']],
+    sections: {
+      'Data': 'Pipe segment registry: age, material (PVC/Steel/Cast_Iron/HDPE), topology, repair count, last inspection.',
+      'RUL': 'Calls Weibull AFT model per segment on each work order completion.',
+      'Scheduling': 'Predictive maintenance schedule: segments with RUL < 6 months surfaced for proactive replacement.',
+    }
+  },
+  mlops: {
+    title: 'MLOps Flywheel',
+    subtitle: 'omni/mlops/',
+    badges: [['purple','PSI Drift'],['blue','Feedback Loop'],['orange','Broken connection']],
+    sections: {
+      'Drift Detection': 'Population Stability Index (PSI) with Laplace smoothing (α=0.5). Alerts when PSI > 0.2 (major drift).',
+      'Retrain Trigger': 'Watches PSI score. When threshold exceeded, calls retraining script.',
+      '⚠️ Broken Loop': 'IEP3 feedback_log.csv → retrain pipeline is not connected. The MLOps flywheel has no wire into the feedback log. Retraining must be triggered manually.',
+      '✅ Fix': 'Create omni/mlops/feedback_watcher.py that: (1) watches feedback_log.csv, (2) batches N new records, (3) triggers train_omni_heads.py, (4) hot-reloads ONNX sessions in orchestrator.'
+    }
+  },
+  twin: {
+    title: 'Digital Twin Store',
+    subtitle: 'omni/common/store.py + timescale_store.py',
+    badges: [['purple','Async-safe'],['blue','Rolling window'],['green','TimescaleDB backed']],
+    sections: {
+      'In-Memory': 'DigitalTwinStore: per-sensor rolling detection window (max 256 entries). Async lock for concurrent access.',
+      'Persistent': 'TimescaleDigitalTwinStore: asyncpg pool to TimescaleDB. sensor_readings hypertable (1-day chunks). detections hypertable (1-hour chunks).',
+      'Fallback': '_FallbackStore wraps in-memory when asyncpg unavailable.',
+      '⚠️ Gap': 'In-memory and TimescaleDB stores are not synchronized. A restart loses all in-memory state. On startup, the twin should load recent history from TimescaleDB.'
+    }
+  },
+  notify: {
+    title: 'Notify Service',
+    subtitle: 'omni/notify/service.py + twilio_service.py',
+    badges: [['purple','Multi-channel'],['red','Twilio'],['green','Stub fallback']],
+    sections: {
+      'Routing': 'HIGH severity → SMS via Twilio. CRITICAL → SMS + WhatsApp.',
+      'State': 'SENT_LOG deque(maxlen=500). Prometheus counter.',
+      'Stub': 'In-memory inbox for ops console display when Twilio not configured.',
+      '⚠️ Gap': 'No retry on Twilio 5xx/timeout. No message queue — fire-and-forget. If Twilio is down during a CRITICAL alert, the notification is lost silently.'
+    }
+  },
+  ops: {
+    title: 'Ops Console (WebSocket Server)',
+    subtitle: 'omni/ops_console/ws_server.py · dashboard.html',
+    badges: [['purple','Port 8765 WS'],['blue','FastAPI'],['orange','ConnectionHub']],
+    sections: {
+      'Architecture': 'FastAPI WebSocket server. ConnectionHub with asyncio.Lock fan-out to all connected clients. Dead-client cleanup.',
+      'REST API': 'GET /api/sensors, /api/alerts, /api/metrics',
+      'Dashboard': 'Mapbox GL JS v3.3, dark-v11, centered Beirut. 9-segment pipe GeoJSON with RUL coloring. Pulse-ring animation on leak events.',
+      '⚠️ Gap': 'No authentication on WebSocket endpoint. Any browser can connect to ws://host:8765 and receive all sensor/alert data. Add JWT token verification on WS upgrade.'
+    }
+  },
+  tsdb: {
+    title: 'TimescaleDB',
+    subtitle: 'omni/common/timescale_store.py · db_schema.sql',
+    badges: [['blue','Port 5432'],['green','PG 16'],['orange','Hypertables']],
+    sections: {
+      'Hypertables': 'sensor_readings (1-day chunks) · detections (1-hour chunks)',
+      'Tables': 'sensor_twins · alerts · alert_history · work_orders · leak_hypotheses',
+      'Extensions': 'timescaledb CASCADE · postgis',
+      'Indexes': 'sensor_id+captured_at DESC partial index WHERE is_leak=TRUE',
+      '⚠️ Gap': 'DSN is in plain docker-compose env block. Should use Docker secrets or external-secrets operator in k8s.'
+    }
+  },
+  redis: {
+    title: 'Redis Cache & Bus',
+    subtitle: 'omni/common/redis_bus.py · docker-compose',
+    badges: [['red','Port 6379'],['blue','AOF'],['orange','256MB LRU']],
+    sections: {
+      'Dual Role': 'Redis serves as BOTH the event bus (Pub/Sub) and cache. The bus role uses PUBLISH/SUBSCRIBE; cache uses GET/SET/HSET.',
+      'Persistence': 'AOF (Append-Only File) enabled. 256MB LRU eviction policy.',
+      '⚠️ Gap': 'Pub/Sub has no durability. See redis-bus node for detailed fix recommendation (Redis Streams).'
+    }
+  },
+  prom: {
+    title: 'Prometheus',
+    subtitle: 'monitoring/prometheus.yml · docker-compose',
+    badges: [['orange','Port 9090'],['blue','v2.51.0'],['green','All services']],
+    sections: {
+      'Scrape Targets': 'EEP :8000/metrics, IEP1 :8001/metrics, IEP2 :8002/metrics, IEP3 :8003/metrics, IEP4 :8004/metrics, Omni :8501/metrics',
+      'k8s': 'ServiceMonitor CRDs for Prometheus Operator integration. Scrape interval: 15s.',
+      '⚠️ Gap': 'No alerting rules defined (no PrometheusRule CRD). No Alertmanager config. Prometheus collects metrics but cannot page on SLO breach.'
+    }
+  },
+  grafana: {
+    title: 'Grafana',
+    subtitle: 'monitoring/grafana/ · docker-compose',
+    badges: [['orange','Port 3000'],['blue','v10.4.0'],['green','9 panels']],
+    sections: {
+      'Panels': 'API latency, request rate, IEP1/IEP2 inference duration, OOD score distribution, CNN confidence, error rate, per-head latency breakdown.',
+      '⚠️ Gap': 'No OpenTelemetry traces datasource (Jaeger/Tempo). Without distributed traces, slow requests cannot be attributed to specific IEP calls.'
+    }
+  },
+  wsserver: {
+    title: 'WebSocket Server',
+    subtitle: 'omni/ops_console/ws_server.py',
+    badges: [['blue','Port 8765'],['purple','Fan-out'],['orange','FastAPI']],
+    sections: {
+      'Design': 'FastAPI WebSocket server. ConnectionHub broadcasts to all connected dashboard clients. Heartbeat every 10s with audit chain status.',
+      'Snapshot': '_send_initial_snapshot() sends current sensor twins, open alerts, and recent detections on new connection.',
+      '⚠️ Gap': 'No auth on WS endpoint. No connection limit. A single misbehaving client can exhaust connection slots.'
+    }
+  },
+  helm: {
+    title: 'Helm Chart',
+    subtitle: 'k8s/helm/omni-sense/',
+    badges: [['green','Chart v0.1.0'],['blue','App v2.0.0'],['orange','Untested']],
+    sections: {
+      'Structure': '35 template files. Namespace, ConfigMaps, Secrets, Deployments, Services, HPAs, StatefulSets, Ingress, ServiceMonitors.',
+      'Registry': 'ghcr.io/omni-sense · Image tag: 2.0.0',
+      '⚠️ Gap': 'Chart is written but untested. helm install --dry-run status unknown. No ArgoCD/Flux GitOps manifest.',
+      '✅ Fix': 'Run helm lint and helm template to validate. Deploy to kind/k3s cluster. Add k8s/argocd/application.yaml for GitOps.'
+    }
+  },
+  hpa: {
+    title: 'Horizontal Pod Autoscalers',
+    subtitle: 'k8s/helm/omni-sense/templates/*/hpa.yaml',
+    badges: [['green','CPU 70%'],['blue','1–5 pods']],
+    sections: {
+      'Config': 'omni-platform: min=1, max=5. IEP2: min=1, max=3. IEP4: min=1, max=3. Target: 70% CPU.',
+      '⚠️ Gap': 'CPU-only HPA. For ML inference, GPU utilization or request queue depth are better autoscaling signals. Consider custom metrics via KEDA.'
+    }
+  },
+  sts: {
+    title: 'StatefulSets',
+    subtitle: 'k8s/helm/omni-sense/templates/',
+    badges: [['green','TimescaleDB 10Gi'],['red','Redis 1Gi']],
+    sections: {
+      'TimescaleDB': 'StatefulSet with volumeClaimTemplate: 10Gi. storageClass: standard.',
+      'Redis': 'Deployment (not StatefulSet) with 1Gi PVC. Recreate strategy.',
+      '⚠️ Gap': 'Redis Deployment with Recreate loses all in-flight Pub/Sub messages on redeploy. Should be a StatefulSet with RollingUpdate for zero-downtime.',
+      '⚠️ Gap 2': 'No backup config for TimescaleDB. No pg_dump CronJob or pgBackRest.'
+    }
+  },
+  sm: {
+    title: 'Prometheus Operator',
+    subtitle: 'k8s/helm/omni-sense/templates/servicemonitor.yaml',
+    badges: [['orange','ServiceMonitors'],['blue','15s interval'],['green','Ingress']],
+    sections: {
+      'ServiceMonitors': 'One ServiceMonitor per IEP service + EEP + omni-platform.',
+      'Ingress': 'Kubernetes Ingress for EEP API and ops console.',
+      '⚠️ Gap': 'No PrometheusRule CRD for alerting. No Alertmanager configuration. Metrics are collected but no pages fire on SLO breach.'
+    }
+  }
+};
+
+function showDetail(id) {
+  const d = details[id];
+  if (!d) return;
+
+  // Deselect previous
+  document.querySelectorAll('.node.selected').forEach(n => n.classList.remove('selected'));
+  const node = document.getElementById('node-' + id);
+  if (node) node.classList.add('selected');
+
+  let html = `<h2>${d.title}</h2><p class="d-subtitle">${d.subtitle}</p>`;
+  if (d.badges) {
+    html += '<div style="margin-bottom:12px">';
+    d.badges.forEach(([cls, lbl]) => html += `<span class="badge badge-${cls}">${lbl}</span>`);
+    html += '</div>';
+  }
+  html += '<div class="sep"></div>';
+
+  for (const [heading, content] of Object.entries(d.sections)) {
+    if (!content) continue;
+    html += `<h3>${heading}</h3>`;
+    if (heading.startsWith('⚠️')) {
+      html += `<div class="issue">${content.replace(/\n/g,'<br>')}</div>`;
+    } else if (heading.startsWith('✅')) {
+      html += `<div class="suggestion">${content.replace(/\n/g,'<br>')}</div>`;
+    } else {
+      html += `<p>${content.replace(/\n/g,'<br>')}</p>`;
+    }
+  }
+
+  document.getElementById('detail-content').innerHTML = html;
+}
+</script>
+</body>
+</html>

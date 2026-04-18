@@ -175,7 +175,83 @@ async def health():
     )
 
 
-# ─── Classify ─────────────────────────────────────────────────────────────────
+# ─── Classify Raw (called by Omni orchestrator) ───────────────────────────────
+
+@app.post("/classify_raw")
+async def classify_raw(body: dict):
+    """
+    Classify raw PCM float32 bytes sent as base64 from the Omni orchestrator.
+
+    Request body:
+        {"pcm_b64": "<base64 of float32 numpy array>", "sr": 16000}
+
+    Response:
+        {"p_leak": 0.72, "label": "Leak", "confidence": 0.72, "is_ood": false}
+
+    This endpoint exists so the Omni EEP orchestrator can call IEP4 directly
+    without WAV encoding overhead.  The orchestrator applies a 120 ms timeout
+    and falls back to the CNN stub on any failure or 503.
+    """
+    if not cnn_classifier.is_loaded:
+        raise HTTPException(
+            status_code=503,
+            detail="CNN model not yet trained. Run scripts/train_cnn.py.",
+        )
+
+    try:
+        import base64 as _b64
+        import numpy as _np
+        pcm_bytes = _b64.b64decode(body["pcm_b64"])
+        pcm = _np.frombuffer(pcm_bytes, dtype=_np.float32).copy()
+        sr = int(body.get("sr", 16000))
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"PCM decode failed: {exc}")
+
+    if len(pcm) < 1600:
+        raise HTTPException(status_code=422, detail="PCM too short (need ≥ 0.1 s)")
+
+    # Pad/trim to 5 s (80 000 samples) matching the CNN training window
+    target = sr * 5
+    if len(pcm) > target:
+        start = (len(pcm) - target) // 2
+        pcm = pcm[start: start + target]
+    elif len(pcm) < target:
+        import numpy as _np2
+        pcm = _np2.pad(pcm, (0, target - len(pcm)))
+
+    # Autoencoder OOD check (best-effort, non-fatal)
+    is_ood = False
+    ae = _get_autoencoder()
+    if ae is not None and ae.is_loaded:
+        try:
+            is_ood, _ = ae.is_anomalous_wav(pcm)
+        except Exception:
+            pass
+
+    # CNN classification
+    try:
+        with CNN_DURATION.time():
+            result = cnn_classifier.predict(pcm)
+    except Exception as exc:
+        CNN_REQUESTS.labels(status="error").inc()
+        raise HTTPException(status_code=500, detail=f"CNN inference failed: {exc}")
+
+    CNN_REQUESTS.labels(status="success").inc()
+    CNN_CONFIDENCE.observe(result["confidence"])
+
+    probs = result.get("probabilities", {})
+    p_leak = float(probs.get("Leak", 1.0 - probs.get("No_Leak", 0.5)))
+
+    return {
+        "p_leak": float(p_leak),
+        "label": result["label"],
+        "confidence": result["confidence"],
+        "is_ood": is_ood,
+        "backend": result["backend"],
+    }
+
+
+# ─── Classify (WAV file upload) ────────────────────────────────────────────────
 
 @app.post("/classify", response_model=CNNResponse)
 async def classify(audio: UploadFile = File(...)):

@@ -172,9 +172,49 @@ class AuditEvent(BaseModel):
     event_id: UUID = Field(default_factory=uuid4)
     ts: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     actor: str
-    action: str
-    resource_type: str
-    resource_id: str
-    payload_hash_sha256: str
-    prev_hash: str
-    signature_ed25519: str
+    # Primary action field — use either action (legacy) or event_type (preferred)
+    action: Optional[str] = None
+    event_type: Optional[str] = None   # e.g. "mlops.retrain_triggered"
+    resource_type: Optional[str] = None
+    resource_id: Optional[str] = None
+    details: Optional[dict] = None     # arbitrary structured payload
+    payload_hash_sha256: str = ""
+    prev_hash: str = ""
+    signature_ed25519: str = ""
+
+
+# ──────────────────────────── SCADA ───────────────────────────────────────────
+class ScadaReading(BaseModel):
+    """A pressure/flow/temperature reading sourced from an OPC-UA SCADA server.
+
+    Published on Topics.SCADA_READING ("scada.reading.v1") by the OPC-UA
+    gateway (omni/edge/opcua_gateway.py).  IEP2's SCADA consistency check
+    subscribes to this topic to correlate with acoustic detections.
+    """
+
+    schema_version: Literal["1"] = "1"
+    sensor_id: str = Field(
+        description="Omni-Sense sensor / asset ID that this reading maps to"
+    )
+    site_id: str = Field(
+        default="",
+        description="Site / zone identifier matching AcousticFrame.site_id",
+    )
+    captured_at: datetime = Field(
+        description="Timestamp of the SCADA measurement (UTC)"
+    )
+    pressure_bar: float = Field(description="Line pressure in bar")
+    flow_lps: Optional[float] = Field(
+        default=None, description="Flow rate in litres per second"
+    )
+    temperature_c: Optional[float] = Field(
+        default=None, description="Water temperature in °C"
+    )
+    node_ids: list[str] = Field(
+        default_factory=list,
+        description="OPC-UA NodeIds that were read to produce this sample",
+    )
+    source: str = Field(
+        default="opcua",
+        description="'opcua' for real data, 'stub' for simulation",
+    )

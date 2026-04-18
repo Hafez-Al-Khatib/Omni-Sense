@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: omni-sense-config
+  namespace: {{ include "omni-sense.namespace" . }}
+  labels:
+    {{- include "omni-sense.labels" . | nindent 4 }}
+    app.kubernetes.io/component: config
+data:
+  # MQTT broker settings
+  OMNI_MQTT_HOST: {{ .Values.sharedConfig.mqttHost | quote }}
+  OMNI_MQTT_PORT: {{ .Values.sharedConfig.mqttPort | quote }}
+
+  # Internal service URLs (cluster-local DNS)
+  OMNI_EEP_API_URL: {{ .Values.sharedConfig.eepApiUrl | quote }}
+  OMNI_IEP1_URL: {{ .Values.sharedConfig.iep1Url | quote }}
+  OMNI_IEP2_URL: {{ .Values.sharedConfig.iep2Url | quote }}
+  OMNI_IEP3_URL: {{ .Values.sharedConfig.iep3Url | quote }}
+  OMNI_IEP4_URL: {{ .Values.sharedConfig.iep4Url | quote }}
+
+  # Logging
+  LOG_LEVEL: {{ .Values.sharedConfig.logLevel | quote }}
+
+  # TimescaleDB connection (password injected from Secret)
+  TIMESCALEDB_HOST: {{ .Values.timescaledb.name | quote }}
+  TIMESCALEDB_PORT: "5432"
+  TIMESCALEDB_DB: {{ .Values.timescaledb.database | quote }}
+  TIMESCALEDB_USER: {{ .Values.timescaledb.user | quote }}
+
+  # Redis
+  REDIS_HOST: {{ .Values.redis.name | quote }}
+  REDIS_PORT: {{ .Values.redis.port | quote }}

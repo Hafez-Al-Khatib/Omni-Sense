@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.omniPlatform.name }}
+  namespace: {{ include "omni-sense.namespace" . }}
+  labels:
+    {{- include "omni-sense.componentLabels" (dict "component" .Values.omniPlatform.name "context" .) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "omni-sense.selectorLabels" (dict "component" .Values.omniPlatform.name "context" .) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.omniPlatform.port }}
+      targetPort: http
+      protocol: TCP
