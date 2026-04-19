@@ -10,10 +10,9 @@ Usage:
     explanation = explainer.explain(features)
 """
 
-import json
 import logging
 import os
-from typing import Dict, List, Optional, Any
+from typing import Any
 
 import numpy as np
 
@@ -29,7 +28,7 @@ class ShapExplainer:
     """
 
     def __init__(self, model_path: str = 'iep2/models/xgboost_classifier.joblib',
-                 feature_names: Optional[List[str]] = None):
+                 feature_names: list[str] | None = None):
         """
         Initialize the SHAP explainer with lazy loading.
 
@@ -46,7 +45,7 @@ class ShapExplainer:
     def _check_shap_availability(self) -> bool:
         """Check if SHAP package is installed."""
         try:
-            import shap
+            import shap  # noqa: F401
             return True
         except ImportError:
             logger.warning("SHAP package not installed. Per-prediction explanations will be unavailable.")
@@ -94,7 +93,7 @@ class ShapExplainer:
             logger.error(f"Failed to initialize SHAP explainer: {e}")
             self._shap_available = False
 
-    def _generate_feature_names(self, n_features: int) -> List[str]:
+    def _generate_feature_names(self, n_features: int) -> list[str]:
         """
         Generate feature names if not provided.
 
@@ -185,7 +184,7 @@ class ShapExplainer:
 
         return feature_names[:n_features]
 
-    def explain(self, features: np.ndarray) -> Dict[str, Any]:
+    def explain(self, features: np.ndarray) -> dict[str, Any]:
         """
         Generate SHAP waterfall explanation for a single prediction.
 
@@ -227,10 +226,7 @@ class ShapExplainer:
 
         try:
             # Ensure features is 2D for prediction
-            if features.ndim == 1:
-                features_2d = features.reshape(1, -1)
-            else:
-                features_2d = features
+            features_2d = features.reshape(1, -1) if features.ndim == 1 else features
 
             # Calculate SHAP values for this instance
             shap_values = self._explainer.shap_values(features_2d)
@@ -278,7 +274,7 @@ class ShapExplainer:
                 "top_features": []
             }
 
-    def explain_batch(self, features: np.ndarray) -> List[Dict[str, Any]]:
+    def explain_batch(self, features: np.ndarray) -> list[dict[str, Any]]:
         """
         Generate SHAP explanations for multiple predictions (batch).
 
@@ -315,10 +311,7 @@ class ShapExplainer:
             shap_values = self._explainer.shap_values(features)
 
             # Handle multi-class output
-            if isinstance(shap_values, list):
-                shap_values_main = shap_values[0]
-            else:
-                shap_values_main = shap_values
+            shap_values_main = shap_values[0] if isinstance(shap_values, list) else shap_values
 
             # Get feature names
             n_features = features.shape[1]

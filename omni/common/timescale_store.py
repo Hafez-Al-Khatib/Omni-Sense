@@ -31,9 +31,13 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from .schemas import Alert, DetectionResult, LeakHypothesis, WorkOrder
+    from .store import SensorTwin
 
 log = logging.getLogger("timescale_store")
 
@@ -53,14 +57,14 @@ _TIMESCALE_DSN = os.environ.get(
 )
 
 # Module-level connection pool (singleton)
-_pool: "asyncpg.Pool | None" = None  # type: ignore[name-defined]
+_pool: asyncpg.Pool | None = None  # type: ignore[name-defined]
 
 
 # ---------------------------------------------------------------------------
 # Pool lifecycle
 # ---------------------------------------------------------------------------
 
-async def get_pool() -> "asyncpg.Pool":  # type: ignore[name-defined]
+async def get_pool() -> asyncpg.Pool:  # type: ignore[name-defined]
     """Return (or create) the shared asyncpg connection pool.
 
     Raises RuntimeError if asyncpg is not available.
@@ -108,7 +112,7 @@ async def init_db() -> None:
 
     schema_path = os.path.join(os.path.dirname(__file__), "db_schema.sql")
     if os.path.exists(schema_path):
-        with open(schema_path, "r", encoding="utf-8") as fh:
+        with open(schema_path, encoding="utf-8") as fh:
             ddl = fh.read()
         log.info("Running DDL from %s", schema_path)
         async with pool.acquire() as conn:
@@ -127,10 +131,10 @@ async def init_db() -> None:
 # ---------------------------------------------------------------------------
 
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
-def _uuid(val: "str | UUID | None") -> "UUID | None":
+def _uuid(val: str | UUID | None) -> UUID | None:
     if val is None:
         return None
     if isinstance(val, UUID):
@@ -149,7 +153,7 @@ def _json_dumps(obj) -> str:
     return json.dumps(obj, default=_default)
 
 
-def _row_to_sensor_twin(row) -> "SensorTwin":
+def _row_to_sensor_twin(row) -> SensorTwin:
     from .store import SensorTwin
     return SensorTwin(
         sensor_id=row["sensor_id"],
@@ -166,7 +170,7 @@ def _row_to_sensor_twin(row) -> "SensorTwin":
     )
 
 
-def _row_to_alert(row) -> "Alert":
+def _row_to_alert(row) -> Alert:
     from .schemas import Alert, AlertState, Severity
     history = row["history"]
     if isinstance(history, str):
@@ -191,7 +195,7 @@ def _row_to_alert(row) -> "Alert":
     )
 
 
-def _row_to_work_order(row) -> "WorkOrder":
+def _row_to_work_order(row) -> WorkOrder:
     from .schemas import WorkOrder, WorkOrderStatus
     parts = row["parts_required"]
     if isinstance(parts, str):
@@ -211,7 +215,7 @@ def _row_to_work_order(row) -> "WorkOrder":
     )
 
 
-def _row_to_detection(row) -> "DetectionResult":
+def _row_to_detection(row) -> DetectionResult:
     from .schemas import DetectionResult
     shap = row["top_shap_features"]
     if isinstance(shap, str):
@@ -241,7 +245,7 @@ def _row_to_detection(row) -> "DetectionResult":
     )
 
 
-def _row_to_hypothesis(row) -> "LeakHypothesis":
+def _row_to_hypothesis(row) -> LeakHypothesis:
     from .schemas import LeakHypothesis
     det_ids = row["contributing_detection_ids"] or []
     # asyncpg returns UUID[] as a Python list of asyncpg UUID objects (or strings)
@@ -271,7 +275,7 @@ class TimescaleDigitalTwinStore:
     transparently.
     """
 
-    def __init__(self, pool: "asyncpg.Pool") -> None:  # type: ignore[name-defined]
+    def __init__(self, pool: asyncpg.Pool) -> None:  # type: ignore[name-defined]
         self._pool = pool
 
     # ------------------------------------------------------------------
@@ -439,7 +443,7 @@ class TimescaleDigitalTwinStore:
 class TimescaleAlertStore:
     """asyncpg-backed replacement for AlertStore."""
 
-    def __init__(self, pool: "asyncpg.Pool") -> None:  # type: ignore[name-defined]
+    def __init__(self, pool: asyncpg.Pool) -> None:  # type: ignore[name-defined]
         self._pool = pool
 
     async def put(self, alert) -> None:
@@ -491,7 +495,7 @@ class TimescaleAlertStore:
                 _json_dumps(alert.history),
             )
 
-    async def get(self, alert_id: UUID) -> "Optional[Alert]":
+    async def get(self, alert_id: UUID) -> Alert | None:
         """Fetch a single alert by ID, or None if not found."""
         from .schemas import Alert  # noqa: F401 (type-checking hint)
         async with self._pool.acquire() as conn:
@@ -505,34 +509,33 @@ class TimescaleAlertStore:
 
     async def transition(
         self, alert_id: UUID, new_state, note: str = ""
-    ) -> "Alert":
+    ) -> Alert:
         """Atomically transition an alert to a new state and append a history entry."""
         now = _now()
-        async with self._pool.acquire() as conn:
-            async with conn.transaction():
-                row = await conn.fetchrow(
-                    "SELECT * FROM alerts WHERE alert_id = $1 FOR UPDATE",
-                    alert_id,
-                )
-                if row is None:
-                    raise KeyError(f"Alert {alert_id} not found")
+        async with self._pool.acquire() as conn, conn.transaction():
+            row = await conn.fetchrow(
+                "SELECT * FROM alerts WHERE alert_id = $1 FOR UPDATE",
+                alert_id,
+            )
+            if row is None:
+                raise KeyError(f"Alert {alert_id} not found")
 
-                history = row["history"]
-                if isinstance(history, str):
-                    history = json.loads(history)
-                if not isinstance(history, list):
-                    history = []
+            history = row["history"]
+            if isinstance(history, str):
+                history = json.loads(history)
+            if not isinstance(history, list):
+                history = []
 
-                entry = {
-                    "from": row["state"],
-                    "to": new_state.value,
-                    "at": now.isoformat(),
-                    "note": note,
-                }
-                history.append(entry)
+            entry = {
+                "from": row["state"],
+                "to": new_state.value,
+                "at": now.isoformat(),
+                "note": note,
+            }
+            history.append(entry)
 
-                updated = await conn.fetchrow(
-                    """
+            updated = await conn.fetchrow(
+                """
                     UPDATE alerts
                     SET state      = $1,
                         updated_at = $2,
@@ -540,24 +543,24 @@ class TimescaleAlertStore:
                     WHERE alert_id = $4
                     RETURNING *
                     """,
-                    new_state.value,
-                    now,
-                    _json_dumps(history),
-                    alert_id,
-                )
-                # Also write to normalised audit table
-                await conn.execute(
-                    """
+                new_state.value,
+                now,
+                _json_dumps(history),
+                alert_id,
+            )
+            # Also write to normalised audit table
+            await conn.execute(
+                """
                     INSERT INTO alert_history
                         (alert_id, transitioned_at, from_state, to_state, note)
                     VALUES ($1, $2, $3, $4, $5)
                     """,
-                    alert_id,
-                    now,
-                    entry["from"],
-                    entry["to"],
-                    note,
-                )
+                alert_id,
+                now,
+                entry["from"],
+                entry["to"],
+                note,
+            )
         return _row_to_alert(updated)
 
     async def list_all(self) -> list:
@@ -576,7 +579,7 @@ class TimescaleAlertStore:
 class TimescaleWorkOrderStore:
     """asyncpg-backed replacement for WorkOrderStore."""
 
-    def __init__(self, pool: "asyncpg.Pool") -> None:  # type: ignore[name-defined]
+    def __init__(self, pool: asyncpg.Pool) -> None:  # type: ignore[name-defined]
         self._pool = pool
 
     async def put(self, wo) -> None:
@@ -662,7 +665,7 @@ class TimescaleHypothesisStore:
     list interface but persists to TimescaleDB.
     """
 
-    def __init__(self, pool: "asyncpg.Pool") -> None:  # type: ignore[name-defined]
+    def __init__(self, pool: asyncpg.Pool) -> None:  # type: ignore[name-defined]
         self._pool = pool
 
     async def append(self, hypothesis) -> None:
@@ -728,7 +731,7 @@ class TimescaleStore:
         store.hypotheses()  # TimescaleHypothesisStore   (or list[LeakHypothesis])
     """
 
-    def __init__(self, pool: "asyncpg.Pool") -> None:  # type: ignore[name-defined]
+    def __init__(self, pool: asyncpg.Pool) -> None:  # type: ignore[name-defined]
         self._twins = TimescaleDigitalTwinStore(pool)
         self._alerts = TimescaleAlertStore(pool)
         self._work_orders = TimescaleWorkOrderStore(pool)
@@ -800,10 +803,10 @@ class _FallbackStore:
 # Module-level factory — the main entry point for application code
 # ---------------------------------------------------------------------------
 
-_store_singleton: "TimescaleStore | _FallbackStore | None" = None
+_store_singleton: TimescaleStore | _FallbackStore | None = None
 
 
-async def get_store(force_timescale: bool = False) -> "TimescaleStore | _FallbackStore":
+async def get_store(force_timescale: bool = False) -> TimescaleStore | _FallbackStore:
     """Return the application-wide store instance.
 
     Decision logic:
@@ -821,7 +824,6 @@ async def get_store(force_timescale: bool = False) -> "TimescaleStore | _Fallbac
         return _store_singleton
 
     env_dsn = os.environ.get("TIMESCALE_DSN", "")
-    use_timescale = _ASYNCPG_AVAILABLE and (env_dsn or force_timescale)
 
     if not _ASYNCPG_AVAILABLE:
         log.warning(

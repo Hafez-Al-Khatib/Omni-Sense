@@ -35,9 +35,8 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -172,7 +171,7 @@ def _lbfgsb(f, g, x0: np.ndarray, max_iter: int = 500, tol: float = 1e-7) -> np.
 
         q = grad.copy()
         alphas = []
-        for s, y in zip(reversed(s_hist), reversed(y_hist)):
+        for s, y in zip(reversed(s_hist), reversed(y_hist), strict=False):
             rho = 1.0 / (y @ s + 1e-12)
             a = rho * (s @ q)
             q -= a * y
@@ -207,9 +206,11 @@ def _lbfgsb(f, g, x0: np.ndarray, max_iter: int = 500, tol: float = 1e-7) -> np.
         y_vec = g(x_new) - grad
 
         if s_hist and len(s_hist) >= m:
-            s_hist.pop(0); y_hist.pop(0)
+            s_hist.pop(0)
+            y_hist.pop(0)
         if y_vec @ s_vec > 1e-10:
-            s_hist.append(s_vec); y_hist.append(y_vec)
+            s_hist.append(s_vec)
+            y_hist.append(y_vec)
 
         x = x_new
 
@@ -222,11 +223,11 @@ class WeibullAFT:
     """Fitted Weibull AFT model. Fit once, predict many."""
 
     def __init__(self):
-        self._params: Optional[np.ndarray] = None
+        self._params: np.ndarray | None = None
         self._sigma: float = 1.0
-        self._beta: Optional[np.ndarray] = None
-        self._feature_mean: Optional[np.ndarray] = None
-        self._feature_std: Optional[np.ndarray] = None
+        self._beta: np.ndarray | None = None
+        self._feature_mean: np.ndarray | None = None
+        self._feature_std: np.ndarray | None = None
         self.n_obs: int = 0
         self.log_likelihood: float = float("nan")
 
@@ -234,7 +235,7 @@ class WeibullAFT:
     def is_fitted(self) -> bool:
         return self._params is not None
 
-    def fit(self, observations: list[PipeObservation]) -> "WeibullAFT":
+    def fit(self, observations: list[PipeObservation]) -> WeibullAFT:
         if len(observations) < 10:
             raise ValueError(f"Need ≥ 10 observations to fit; got {len(observations)}")
 
@@ -257,8 +258,10 @@ class WeibullAFT:
         x0[0] = 0.0                            # log_sigma → σ=1
         x0[1] = np.mean(np.log(T))             # intercept
 
-        f = lambda p: _neg_log_likelihood(p, X, T, E)
-        g = lambda p: _neg_log_likelihood_grad(p, X, T, E)
+        def f(p):
+            return _neg_log_likelihood(p, X, T, E)
+        def g(p):
+            return _neg_log_likelihood_grad(p, X, T, E)
 
         self._params = _lbfgsb(f, g, x0)
         self._sigma = np.exp(self._params[0])
@@ -310,7 +313,7 @@ class WeibullAFT:
 
         return RULPrediction(
             segment_id=obs.segment_id,
-            predicted_at=datetime.now(timezone.utc),
+            predicted_at=datetime.now(UTC),
             rul_days=round(max(0.0, rul_median), 1),
             rul_lower_80=round(max(0.0, rul_lower_80), 1),
             rul_upper_80=round(rul_upper_80, 1),
@@ -348,7 +351,7 @@ def generate_synthetic_corpus(n: int = 400, seed: int = 42) -> list[PipeObservat
 
     PIPE_IDS = [f"P-{i:04d}" for i in range(n)]
 
-    for i, pid in enumerate(PIPE_IDS):
+    for _i, pid in enumerate(PIPE_IDS):
         age     = rng.uniform(2, 45)
         repairs = int(rng.poisson(1.5))
         pressure = rng.uniform(2.5, 8.0)
@@ -394,7 +397,7 @@ def generate_synthetic_corpus(n: int = 400, seed: int = 42) -> list[PipeObservat
 
 # ─────────────────────────── Module-level singleton ───────────────────────────
 
-_model: Optional[WeibullAFT] = None
+_model: WeibullAFT | None = None
 
 
 def get_model() -> WeibullAFT:

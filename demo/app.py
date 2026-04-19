@@ -1,13 +1,12 @@
-import streamlit as st
-import requests
-import numpy as np
-import matplotlib.pyplot as plt
 import io
-import json
+
 import folium
-from streamlit_folium import st_folium
-from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
+import numpy as np
+import requests
 import soundfile as sf
+import streamlit as st
+from streamlit_folium import st_folium
 
 # ==================== HELPER FUNCTIONS (must be defined before use) ====================
 
@@ -148,7 +147,7 @@ with st.sidebar:
         else:
             st.warning("⚠️ EEP Unreachable")
             system_online = False
-    except:
+    except Exception:
         st.warning("⚠️ EEP Offline", icon="⚠️")
         system_online = False
 
@@ -466,15 +465,15 @@ with tab2:
 
     with col_s1:
         normal_count = sum(1 for s in sensors.values() if s["status"] == "Normal")
-        st.metric("🟢 Normal", normal_count, help=f"Sensors operating normally")
+        st.metric("🟢 Normal", normal_count, help="Sensors operating normally")
 
     with col_s2:
         leak_count = sum(1 for s in sensors.values() if s["status"] == "Leak")
-        st.metric("🔴 Leak Detected", leak_count, help=f"Active leak alerts")
+        st.metric("🔴 Leak Detected", leak_count, help="Active leak alerts")
 
     with col_s3:
         offline_count = sum(1 for s in sensors.values() if s["status"] == "Offline")
-        st.metric("⚫ Offline", offline_count, help=f"Offline sensors")
+        st.metric("⚫ Offline", offline_count, help="Offline sensors")
 
     # Detailed sensor table
     st.markdown("#### Sensor Details")

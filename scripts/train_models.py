@@ -29,6 +29,7 @@ import mlflow.sklearn
 import mlflow.xgboost
 import numpy as np
 import pandas as pd
+import xgboost as xgb
 from sklearn.ensemble import IsolationForest, RandomForestClassifier
 from sklearn.metrics import (
     accuracy_score,
@@ -38,9 +39,8 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from sklearn.model_selection import StratifiedKFold, LeaveOneOut
+from sklearn.model_selection import LeaveOneOut, StratifiedKFold
 from sklearn.preprocessing import LabelEncoder
-import xgboost as xgb
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -100,7 +100,7 @@ def prepare_features(
 
     labels = df["label"].copy()
     if binary_mode:
-        labels = labels.apply(lambda l: "No_Leak" if l in NO_FAULT_LABELS else "Leak")
+        labels = labels.apply(lambda lbl: "No_Leak" if lbl in NO_FAULT_LABELS else "Leak")
 
     le = LabelEncoder()
     y = le.fit_transform(labels.values)
@@ -189,7 +189,7 @@ def train_xgboost(
     objective = "multi:softprob" if is_multiclass else "binary:logistic"
     eval_metric = "mlogloss" if is_multiclass else "logloss"
 
-    print(f"\n  Training XGBoost classifier...")
+    print("\n  Training XGBoost classifier...")
     print(f"  Mode: {'multi-class' if is_multiclass else 'binary'} ({n_classes} classes)")
     print(f"  Training: {X_train.shape[0]} samples | Validation: {X_val.shape[0]} samples")
     print(f"  Feature dim: {X_train.shape[1]}")
@@ -256,12 +256,12 @@ def evaluate_xgboost(
         "roc_auc":   roc_auc,
     }
 
-    print(f"\n  XGBoost Test Results:")
+    print("\n  XGBoost Test Results:")
     print(f"  {'-' * 40}")
     for k, v in metrics.items():
         print(f"    {k:>12}: {v:.4f}")
 
-    print(f"\n  Classification Report:")
+    print("\n  Classification Report:")
     print(classification_report(
         y_test, y_pred,
         target_names=list(label_encoder.classes_),
@@ -276,13 +276,13 @@ def export_xgboost_onnx(
     n_features: int = 102,
 ):
     """Export XGBoost model to ONNX format."""
+    from onnxmltools.convert.xgboost.operator_converters.XGBoost import (
+        convert_xgboost,
+    )
     from skl2onnx import convert_sklearn, update_registered_converter
     from skl2onnx.common.data_types import FloatTensorType
     from skl2onnx.common.shape_calculator import (
         calculate_linear_classifier_output_shapes,
-    )
-    from onnxmltools.convert.xgboost.operator_converters.XGBoost import (
-        convert_xgboost,
     )
 
     update_registered_converter(
@@ -482,7 +482,7 @@ def main():
     n_feat = embeddings_only.shape[1]
     print(f"  Feature matrix: {X.shape} ({n_feat} vibration features + 2 metadata)")
     unique, counts = np.unique(y, return_counts=True)
-    for cls_idx, cnt in zip(unique, counts):
+    for cls_idx, cnt in zip(unique, counts, strict=False):
         print(f"    class {cls_idx} ({label_encoder.classes_[cls_idx]}): {cnt} samples")
 
     # ── MLflow setup ──
@@ -612,7 +612,7 @@ def main():
         fpr_arr, tpr_arr, thresh_arr = _roc_curve(all_y_true_arr, all_y_proba_arr)
         best_j = int(np.argmax(tpr_arr - fpr_arr))
         youden_thresh = float(thresh_arr[best_j])
-        res_youden = _eval_at_threshold(youden_thresh, f"Youden-J optimal (ref only)")
+        res_youden = _eval_at_threshold(youden_thresh, "Youden-J optimal (ref only)")
 
         # Pick the best threshold for production: prior threshold is principled;
         # Youden is shown for reference but is optimistic (optimised on CV outputs).
@@ -681,14 +681,14 @@ def main():
 
             n_emb = embeddings_only.shape[1]
             n_feat_total = n_emb + 2
-            
+
             export_isolation_forest_onnx(iforest, if_onnx_path, n_features=n_emb)
             export_xgboost_onnx(xgb_model, xgb_onnx_path, n_features=n_feat_total)
             try:
                 export_rf_onnx(rf_model, rf_onnx_path, n_features=n_feat_total)
             except Exception as e:
                 print(f"  [WARN] RF ONNX export failed ({e})")
-                
+
             print(f"  ONNX models exported successfully to {output_dir}")
         except Exception as e:
             print(f"  [SKIPPED] ONNX export failed: {e}")
@@ -705,7 +705,7 @@ def main():
         mlflow.log_artifact(str(metrics_path))
 
     print(f"\n{'=' * 60}")
-    print(f"Training complete!")
+    print("Training complete!")
     print(f"  Models: {output_dir}")
     print(f"  MLflow: {args.mlflow_tracking_uri}")
     print(f"  F1 Score (prior thresh): {metrics['f1_prior']:.4f}")

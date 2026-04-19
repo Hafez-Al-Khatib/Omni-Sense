@@ -55,11 +55,16 @@ def parse_wav_metadata(wav_path: Path) -> dict:
     raw_fault  = "_".join(topo_fault[1:]) if len(topo_fault) > 1 else "Unknown"
     fault_class = _FAULT_CLASS_NORMALISE.get(raw_fault, raw_fault)
 
-    if "0.18" in stem_str:      condition = "0.18_LPS"
-    elif "0.47" in stem_str:    condition = "0.47_LPS"
-    elif "Transient" in stem_str: condition = "Transient"
-    elif "ND" in stem_str:      condition = "ND"
-    else:                        condition = "Unknown"
+    if "0.18" in stem_str:
+        condition = "0.18_LPS"
+    elif "0.47" in stem_str:
+        condition = "0.47_LPS"
+    elif "Transient" in stem_str:
+        condition = "Transient"
+    elif "ND" in stem_str:
+        condition = "ND"
+    else:
+        condition = "Unknown"
 
     sensor_id = "A2" if stem_str.endswith("A2") else "A1"
     return {"topology": topology, "fault_class": fault_class,

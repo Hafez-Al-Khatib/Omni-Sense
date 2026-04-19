@@ -156,7 +156,7 @@ class VibrationDataset:
     def build_label_encoder(self) -> dict[str, int]:
         if self.binary:
             return {"Leak": 0, "No_Leak": 1}
-        return {l: i for i, l in enumerate(sorted({r["label"] for r in self.records}))}
+        return {lbl: i for i, lbl in enumerate(sorted({r["label"] for r in self.records}))}
 
     def normalise_label(self, raw: str) -> str:
         if self.binary:
@@ -220,7 +220,7 @@ def focal_loss(
     logits,        # (B, C) raw logits
     targets,       # (B,) int64 class indices
     gamma: float = 2.0,
-    alpha: "torch.Tensor | None" = None,  # per-class weight
+    alpha=None,  # torch.Tensor | None — per-class weight
 ):
     """
     Focal Loss: FL(p_t) = -alpha_t * (1-p_t)^gamma * log(p_t)
@@ -259,7 +259,6 @@ def spec_augment(spec, freq_mask: int = 6, time_mask: int = 15, rng=None):
     Smaller masks than speech (freq_mask=6 vs 27, time_mask=15 vs 100)
     to avoid masking out fault-specific spectral lines.
     """
-    import torch
     if rng is None:
         rng = np.random.default_rng()
     spec = spec.clone()
@@ -310,7 +309,7 @@ def train_epoch(model, loader, optimizer, loss_fn, device, rng, use_augment):
 
 def eval_epoch(model, loader, loss_fn, device):
     import torch
-    from sklearn.metrics import f1_score, classification_report
+    from sklearn.metrics import f1_score
     model.eval()
     total_loss, n = 0.0, 0
     all_preds, all_targets = [], []
@@ -441,7 +440,7 @@ def main():
     print(f"\n{'='*60}")
     print(f"OmniCNN Training — {n_classes} classes | {len(train_records)} train clips | {args.epochs} max epochs")
     print(f"Loss: Focal (gamma={gamma}) | LR: {args.lr} | Batch: {args.batch_size}")
-    print(f"Split: recording-level (no clip-level leakage)")
+    print("Split: recording-level (no clip-level leakage)")
     print(f"{'='*60}")
 
     for epoch in range(1, args.epochs + 1):
@@ -520,8 +519,8 @@ def main():
     print(f"Done!  Best val F1: {best_val_f1:.4f}")
     print(f"  Model:     {pt_path}")
     print(f"  Label map: {label_map_path}")
-    print(f"\n  Restart IEP4 to pick up the new model:")
-    print(f"  docker compose restart iep4")
+    print("\n  Restart IEP4 to pick up the new model:")
+    print("  docker compose restart iep4")
     print(f"{'='*60}")
 
 

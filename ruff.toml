@@ -1,0 +1,37 @@
+[lint]
+# Rules added on top of CLI --ignore E501,E402:
+#
+#   B008  FastAPI `File(...)` in argument defaults — standard FastAPI pattern,
+#         not a real call-at-import-time problem.
+#
+#   B904  raise-without-from inside except clauses — stylistically preferred
+#         but the existing codebase is consistent; suppress globally and fix
+#         incrementally in follow-up PRs.
+#
+#   N803  Argument name should be lowercase — ML convention uses X_train,
+#         X_test, X, T, E throughout training scripts.
+#
+#   N806  Variable in function should be lowercase — ditto; also covers domain
+#         notation (Zxx for STFT output, D for dimensionality, R for rotation).
+#
+#   N812  Lowercase imported as non-lowercase — `import torch.nn.functional as F`
+#         is the universal PyTorch idiom.
+#
+#   N816  Variable in global scope should not be mixedCase — Streamlit layout
+#         columns (colA/colB/…) follow the UI framework convention.
+#
+#   SIM105 Use contextlib.suppress — readability preference; try/except/pass is
+#          explicit and fine in hot-path code.
+#
+#   SIM108 Use ternary operator — readability preference; multi-line if/else
+#          is often clearer in signal-processing code.
+ignore = [
+    "B008",
+    "B904",
+    "N803",
+    "N806",
+    "N812",
+    "N816",
+    "SIM105",
+    "SIM108",
+]

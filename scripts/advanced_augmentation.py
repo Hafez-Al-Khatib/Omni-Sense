@@ -4,10 +4,21 @@ Perform Amplitude scaling, AWGN for electronic noise floor simulation, speed per
 Should generate much richer samples.
 """
 
-import numpy as np 
-import librosa
-import soundfile as sf 
 from pathlib import Path
+
+import librosa
+import numpy as np
+import soundfile as sf
+from scipy.signal import butter, sosfilt
+
+
+def apply_butterworth_lpf(signal: np.ndarray, cutoff_hz: float, sr: int, order: int = 4) -> np.ndarray:
+    """Apply a Butterworth low-pass filter to simulate pipe-material frequency response."""
+    nyq = sr / 2.0
+    normal_cutoff = min(cutoff_hz / nyq, 0.99)
+    sos = butter(order, normal_cutoff, btype="low", output="sos")
+    return sosfilt(sos, signal).astype(np.float32)
+
 
 def apply_physics_augmentation(audio_path, output_dir):
     """
