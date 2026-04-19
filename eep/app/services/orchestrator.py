@@ -9,8 +9,17 @@ import io
 import logging
 
 import httpx
+from prometheus_client import Counter
 
 from app.config import settings
+
+# ─── Prometheus metrics ───────────────────────────────────────────────────────
+
+IEP4_FALLBACK_COUNTER = Counter(
+    "eep_iep4_fallback_total",
+    "Number of times the IEP4 CNN path was unavailable and fell back to IEP2-only.",
+    ["reason"],   # "not_trained" | "timeout" | "unreachable" | "error"
+)
 
 logger = logging.getLogger("eep.orchestrator")
 
@@ -185,19 +194,24 @@ async def call_iep4_classify(audio_bytes: bytes) -> dict | None:
             response = await client.post(url, files=files)
             if response.status_code == 503:
                 logger.info("IEP4 CNN not yet trained — skipping deep path")
+                IEP4_FALLBACK_COUNTER.labels(reason="not_trained").inc()
                 return None
             if response.status_code == 200:
                 return response.json()
             logger.warning(f"IEP4 returned {response.status_code}")
+            IEP4_FALLBACK_COUNTER.labels(reason="error").inc()
             return None
     except httpx.ConnectError:
         logger.warning("IEP4 unreachable — skipping deep path")
+        IEP4_FALLBACK_COUNTER.labels(reason="unreachable").inc()
         return None
     except httpx.TimeoutException:
         logger.warning("IEP4 timeout — skipping deep path")
+        IEP4_FALLBACK_COUNTER.labels(reason="timeout").inc()
         return None
     except Exception as exc:
         logger.warning(f"IEP4 call failed: {exc}")
+        IEP4_FALLBACK_COUNTER.labels(reason="error").inc()
         return None
 
 
@@ -212,7 +226,18 @@ def ensemble_iep2_iep4(
 
     Falls back to IEP2-only if IEP4 is unavailable or class sets differ.
     Satisfies the rubric requirement for parallel model interaction in EEP.
+
+    OOD gate
+    --------
+    When IEP2 returns an OOD flag (422 from the diagnostic engine), the
+    ``probabilities`` key is absent from ``iep2_result``.  Attempting to
+    read it and merge with IEP4 probabilities would crash the ensemble.
+    We bypass the ensemble entirely and return the IEP2 OOD result unchanged.
     """
+    # ── OOD short-circuit ─────────────────────────────────────────────────────
+    if iep2_result.get("is_ood"):
+        return {**iep2_result, "ensemble_method": "ood_bypass"}
+
     if iep4_result is None:
         return {**iep2_result, "ensemble_method": "iep2_only"}
 

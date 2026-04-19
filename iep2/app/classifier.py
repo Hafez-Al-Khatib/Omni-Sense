@@ -13,9 +13,12 @@ Why an ensemble?
   Averaging their softmax outputs gives a more calibrated confidence signal
   and empirically reduces error by 5–15% on small-N benchmarks.
 
-Model priority:
-  ONNX (xgboost_classifier.onnx / rf_classifier.onnx)   ← preferred
-  joblib (xgboost_classifier.joblib / rf_classifier.joblib) ← fallback
+Security note
+-------------
+Only ONNX Runtime is used for inference.  joblib / pickle fallbacks have
+been removed because pickle can execute arbitrary code embedded in a model
+file, creating an RCE vector if a model artifact is tampered with.
+Scripts must export models to ONNX format before deployment.
 
 Class-index → label mapping is loaded from models/label_map.json,
 written by scripts/train_models.py at training time.
@@ -30,12 +33,11 @@ import numpy as np
 logger = logging.getLogger("iep2.classifier")
 
 # ─── Model file paths ────────────────────────────────────────────────────────
+# Only ONNX paths are accepted.  .joblib paths have been removed (RCE risk).
 
-XGB_ONNX_PATH   = Path("models/xgboost_classifier.onnx")
-XGB_JOBLIB_PATH = Path("models/xgboost_classifier.joblib")
-RF_ONNX_PATH    = Path("models/rf_classifier.onnx")
-RF_JOBLIB_PATH  = Path("models/rf_classifier.joblib")
-LABEL_MAP_PATH  = Path("models/label_map.json")
+XGB_ONNX_PATH = Path("models/xgboost_classifier.onnx")
+RF_ONNX_PATH  = Path("models/rf_classifier.onnx")
+LABEL_MAP_PATH = Path("models/label_map.json")
 
 # Ensemble weight for XGBoost vs Random Forest (must sum to 1.0)
 _XGB_WEIGHT = 0.60
@@ -51,19 +53,19 @@ _FALLBACK_LABEL_MAP: dict[int, str] = {
     0: "Leak",
     1: "No_Leak",
 }
+# Public alias for tests and external consumers
+LABEL_MAP: dict[int, str] = _FALLBACK_LABEL_MAP
 
 
 # ─── Single-model loader ─────────────────────────────────────────────────────
 
 class _SingleClassifier:
-    """Internal helper: loads and runs one ONNX / joblib model."""
+    """Internal helper: loads and runs one ONNX model."""
 
-    def __init__(self, name: str, onnx_path: Path, joblib_path: Path):
+    def __init__(self, name: str, onnx_path: Path):
         self.name = name
         self._onnx_path = onnx_path
-        self._joblib_path = joblib_path
         self._session = None
-        self._model = None
         self._backend: str | None = None
 
     @property
@@ -71,44 +73,35 @@ class _SingleClassifier:
         return self._backend is not None
 
     def load(self) -> None:
-        if self._onnx_path.exists():
-            try:
-                import onnxruntime as ort
-                self._session = ort.InferenceSession(
-                    str(self._onnx_path),
-                    providers=["CPUExecutionProvider"],
-                )
-                self._backend = "onnx"
-                logger.info(f"{self.name}: loaded ONNX from {self._onnx_path}")
-                return
-            except Exception as exc:
-                logger.warning(f"{self.name}: ONNX load failed ({exc}), trying joblib")
-
-        if self._joblib_path.exists():
-            import joblib
-            self._model = joblib.load(self._joblib_path)
-            self._backend = "sklearn"
-            logger.info(f"{self.name}: loaded joblib from {self._joblib_path}")
+        if not self._onnx_path.exists():
+            logger.warning(f"{self.name}: ONNX model not found at {self._onnx_path}")
             return
 
-        logger.warning(
-            f"{self.name}: no model found at {self._onnx_path} or {self._joblib_path}"
-        )
+        try:
+            import onnxruntime as ort
+            self._session = ort.InferenceSession(
+                str(self._onnx_path),
+                providers=["CPUExecutionProvider"],
+            )
+            self._backend = "onnx"
+            logger.info(f"{self.name}: loaded ONNX from {self._onnx_path}")
+        except Exception as exc:
+            logger.error(
+                f"{self.name}: ONNX load failed — {exc}. "
+                "Re-export the model with scripts/train_models.py."
+            )
 
     def predict_proba(self, features: np.ndarray) -> np.ndarray:
         """Returns probability array of shape (n_classes,)."""
         if not self.is_loaded:
             return np.array([])
 
-        if self._backend == "onnx":
-            input_name = self._session.get_inputs()[0].name
-            result = self._session.run(None, {input_name: features})
-            proba_dict = result[1][0]
-            if isinstance(proba_dict, dict):
-                return np.array(list(proba_dict.values()), dtype=np.float32)
-            return np.array(proba_dict, dtype=np.float32)
-        else:
-            return self._model.predict_proba(features)[0].astype(np.float32)
+        input_name = self._session.get_inputs()[0].name
+        result = self._session.run(None, {input_name: features})
+        proba_dict = result[1][0]
+        if isinstance(proba_dict, dict):
+            return np.array(list(proba_dict.values()), dtype=np.float32)
+        return np.array(proba_dict, dtype=np.float32)
 
 
 # ─── Ensemble classifier ─────────────────────────────────────────────────────
@@ -122,8 +115,8 @@ class LeakClassifier:
     """
 
     def __init__(self):
-        self._xgb = _SingleClassifier("XGBoost", XGB_ONNX_PATH, XGB_JOBLIB_PATH)
-        self._rf  = _SingleClassifier("RandomForest", RF_ONNX_PATH, RF_JOBLIB_PATH)
+        self._xgb = _SingleClassifier("XGBoost", XGB_ONNX_PATH)
+        self._rf  = _SingleClassifier("RandomForest", RF_ONNX_PATH)
         self._is_loaded = False
         self._label_map: dict[int, str] = _FALLBACK_LABEL_MAP.copy()
         self._decision_threshold: float = 0.5
@@ -152,11 +145,11 @@ class LeakClassifier:
 
         if not self._xgb.is_loaded and not self._rf.is_loaded:
             raise FileNotFoundError(
-                "No classifier models found. "
-                "Run scripts/train_models.py first."
+                "No ONNX classifier models found. "
+                "Run scripts/train_models.py and export to ONNX first."
             )
 
-        model_dir = XGB_ONNX_PATH.parent if XGB_ONNX_PATH.exists() else XGB_JOBLIB_PATH.parent
+        model_dir = XGB_ONNX_PATH.parent
         self._load_label_map(model_dir)
         self._is_loaded = True
 

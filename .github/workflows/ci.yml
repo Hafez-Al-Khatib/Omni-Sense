@@ -162,7 +162,7 @@ jobs:
           cp certs/ca.key certs/server.key
       - name: Start services
         run: |
-          docker compose up -d eep iep1 iep2
+          docker compose up -d eep iep2   # iep1 (YAMNet) removed — DSP features extracted natively in EEP
           sleep 15
       - name: Smoke test EEP health
         run: |

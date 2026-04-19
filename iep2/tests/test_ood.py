@@ -2,10 +2,8 @@
 Unit tests for IEP2 OOD detector and classifier.
 """
 
-import numpy as np
-import pytest
-from unittest.mock import MagicMock, patch
 
+import numpy as np
 from app.calibration import CalibrationManager
 
 
@@ -77,5 +75,8 @@ class TestClassifierSchema:
 
     def test_label_map(self):
         from app.classifier import LABEL_MAP
-        assert LABEL_MAP[0] == "background"
-        assert LABEL_MAP[1] == "leak"
+        assert 0 in LABEL_MAP
+        assert 1 in LABEL_MAP
+        # Default binary map used when no trained label_map.json is present
+        assert LABEL_MAP[0] == "Leak"
+        assert LABEL_MAP[1] == "No_Leak"

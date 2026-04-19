@@ -33,16 +33,16 @@ BASELINE_DECISIONS = Counter(
     ["decision"],  # "leak_detected" | "no_leak"
 )
 from app.middleware.rate_limiter import limiter
-from app.services.signal_qa import check_signal_quality
 from app.services.baseline import run_baseline
 from app.services.orchestrator import (
+    OrchestratorError,
     call_iep1_embed,
     call_iep2_diagnose,
     call_iep3_notify,
     call_iep4_classify,
     ensemble_iep2_iep4,
-    OrchestratorError,
 )
+from app.services.signal_qa import check_signal_quality
 
 logger = logging.getLogger("eep.diagnose")
 router = APIRouter()
@@ -88,15 +88,37 @@ async def diagnose(
             detail=f"Invalid pipe_material: {pipe_material}. Must be PVC, Steel, or Cast_Iron.",
         )
 
-    # ── Read audio ──
-    audio_bytes = await audio.read()
-
-    # ── Size check ──
+    # ── Size guard: reject oversized uploads BEFORE reading into memory ──
+    # Check the Content-Length header first so we can 413 well-behaved clients
+    # before any bytes land in RAM.  Then cap the streaming read to
+    # (max_bytes + 1) so chunked / headerless uploads are also bounded.
     max_bytes = int(settings.MAX_AUDIO_SIZE_MB * 1024 * 1024)
+    content_length_hdr = request.headers.get("content-length")
+    if content_length_hdr is not None:
+        try:
+            cl = int(content_length_hdr)
+            if cl > max_bytes:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"Content-Length {cl} exceeds maximum allowed "
+                        f"{max_bytes} bytes ({settings.MAX_AUDIO_SIZE_MB} MB)."
+                    ),
+                )
+        except ValueError:
+            pass  # malformed header — let the read-cap below catch it
+
+    # Read at most (max_bytes + 1) bytes so we can detect oversize uploads
+    # that omit Content-Length (e.g. chunked transfer) without loading the
+    # entire file into memory first.
+    audio_bytes = await audio.read(max_bytes + 1)
+
     if len(audio_bytes) > max_bytes:
         raise HTTPException(
             status_code=413,
-            detail=f"Audio file too large: {len(audio_bytes)} bytes (max {max_bytes}).",
+            detail=(
+                f"Audio file too large: exceeds {settings.MAX_AUDIO_SIZE_MB} MB limit."
+            ),
         )
 
     if len(audio_bytes) == 0:
@@ -127,6 +149,7 @@ async def diagnose(
             status_code=400,
             detail={
                 "error": "Signal Quality Check Failed",
+                "hardware_status": quality["hardware_status"],
                 "message": quality["error"],
                 "rms": quality["rms"],
                 "peak": quality["peak"],
@@ -185,6 +208,7 @@ async def diagnose(
             status_code=422,
             content={
                 **result,
+                "hardware_status": quality["hardware_status"],
                 "signal_quality": quality,
                 "baseline_decision": baseline["baseline_decision"],
                 "baseline_rms": baseline["baseline_rms"],
@@ -211,6 +235,7 @@ async def diagnose(
     # ── Success Response ──
     return {
         **result,
+        "hardware_status": quality["hardware_status"],
         "signal_quality": quality,
         "baseline_decision": baseline["baseline_decision"],
         "baseline_rms": baseline["baseline_rms"],

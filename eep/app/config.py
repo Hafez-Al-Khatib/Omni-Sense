@@ -32,8 +32,14 @@ class Settings(BaseSettings):
     SILENCE_RMS_THRESHOLD: float = 0.001   # Below = "Dead Sensor"
     CLIPPING_PEAK_THRESHOLD: float = 0.99  # Above = "Broken Mic"
 
-    # CORS
-    CORS_ORIGINS: list[str] = ["*"]
+    # CORS — never use ["*"] in production (CSRF risk).
+    # Set OMNI_CORS_ORIGINS as a comma-separated list in the environment, e.g.:
+    #   OMNI_CORS_ORIGINS='["https://dashboard.omni-sense.io","https://ops.omni-sense.io"]'
+    # The default allows local dev only.
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:3000",   # web UI dev server
+        "http://localhost:8501",   # Streamlit ops console
+    ]
 
     # IEP3 — Dispatch & Active Learning
     IEP3_URL: str = "http://iep3:8003"

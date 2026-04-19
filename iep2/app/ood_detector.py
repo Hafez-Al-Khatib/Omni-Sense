@@ -2,7 +2,16 @@
 Out-of-Distribution Detector
 ==============================
 Wraps the Isolation Forest model for OOD/anomaly detection.
-Supports both ONNX Runtime and joblib-loaded scikit-learn models.
+
+Security note
+-------------
+Only ONNX Runtime is supported for loading models.  The previous
+joblib/sklearn fallback has been removed because Python's pickle protocol
+(used internally by joblib) can execute arbitrary code when loading a
+tampered model file, creating an RCE vector.
+
+Export models to ONNX before deploying:
+    scripts/train_models.py  →  models/isolation_forest.onnx
 """
 
 import logging
@@ -12,109 +21,90 @@ import numpy as np
 
 logger = logging.getLogger("iep2.ood")
 
-# Default model paths (relative to the app's working directory)
+# Default ONNX model path (relative to the app's working directory)
 ONNX_PATH = Path("models/isolation_forest.onnx")
-JOBLIB_PATH = Path("models/isolation_forest.joblib")
 
 
 class OODDetector:
-    """Isolation Forest–based Out-of-Distribution detector."""
+    """Isolation Forest–based Out-of-Distribution detector (ONNX only)."""
 
     def __init__(self):
-        self._model = None
         self._session = None
-        self._backend = None  # "onnx" or "sklearn"
         self._is_loaded = False
 
     @property
     def is_loaded(self) -> bool:
         return self._is_loaded
 
-    def load(self, onnx_path: str | None = None, joblib_path: str | None = None):
-        """
-        Load the Isolation Forest model.
-        Prefers ONNX; falls back to joblib/sklearn.
+    def load(self, onnx_path: str | None = None):
+        """Load the Isolation Forest ONNX model.
+
+        Args:
+            onnx_path: Override path.  Defaults to ``models/isolation_forest.onnx``.
+
+        Raises:
+            FileNotFoundError: Model file is absent.
+            RuntimeError: ONNX Runtime failed to load the session.
         """
         onnx_p = Path(onnx_path) if onnx_path else ONNX_PATH
-        joblib_p = Path(joblib_path) if joblib_path else JOBLIB_PATH
-
-        if onnx_p.exists():
-            self._load_onnx(onnx_p)
-        elif joblib_p.exists():
-            self._load_sklearn(joblib_p)
-        else:
+        if not onnx_p.exists():
             raise FileNotFoundError(
-                f"No model found at {onnx_p} or {joblib_p}. "
-                "Train models first with scripts/train_models.py."
+                f"ONNX model not found at {onnx_p}. "
+                "Export with scripts/train_models.py --export-onnx before deploying."
             )
+        self._load_onnx(onnx_p)
 
-    def _load_onnx(self, path: Path):
+    def _load_onnx(self, path: Path) -> None:
         """Load ONNX model via ONNX Runtime."""
         import onnxruntime as ort
 
-        self._session = ort.InferenceSession(
-            str(path),
-            providers=["CPUExecutionProvider"],
-        )
-        self._backend = "onnx"
-        self._is_loaded = True
-        logger.info(f"Loaded Isolation Forest (ONNX) from {path}")
-
-    def _load_sklearn(self, path: Path):
-        """Load scikit-learn model via joblib."""
-        import joblib
-
-        self._model = joblib.load(path)
-        self._backend = "sklearn"
-        self._is_loaded = True
-        logger.info(f"Loaded Isolation Forest (sklearn) from {path}")
+        try:
+            self._session = ort.InferenceSession(
+                str(path),
+                providers=["CPUExecutionProvider"],
+            )
+            self._is_loaded = True
+            logger.info(f"Loaded Isolation Forest (ONNX) from {path}")
+        except Exception as exc:
+            raise RuntimeError(
+                f"ONNX Runtime failed to load {path}: {exc}. "
+                "Re-export the model with scripts/train_models.py."
+            ) from exc
 
     def score(self, embedding: np.ndarray) -> float:
-        """
-        Compute the anomaly score for a single embedding.
+        """Return the decision-function anomaly score.
 
-        Returns:
-            float: Higher is more normal; lower (more negative) = more anomalous
+        Higher = more normal; lower (more negative) = more anomalous.
         """
         if not self._is_loaded:
-            raise RuntimeError("Model not loaded")
+            raise RuntimeError("OOD model not loaded — call load() first")
 
         embedding_2d = embedding.reshape(1, -1).astype(np.float32)
-
-        if self._backend == "onnx":
-            input_name = self._session.get_inputs()[0].name
-            result = self._session.run(None, {input_name: embedding_2d})
-            # ONNX Isolation Forest outputs: [labels, scores]
-            # scores is the decision_function output
-            return float(result[1][0][1])  # score for "inlier" class
-        else:
-            return float(self._model.decision_function(embedding_2d)[0])
+        input_name = self._session.get_inputs()[0].name
+        result = self._session.run(None, {input_name: embedding_2d})
+        # ONNX Isolation Forest outputs: [labels, scores]
+        # scores[0][1] is the decision_function value for the inlier class
+        return float(result[1][0][1])
 
     def is_anomalous(
         self,
         embedding: np.ndarray,
         threshold_override: float | None = None,
     ) -> bool:
-        """
-        Check if an embedding is Out-of-Distribution.
+        """Return True if the embedding is Out-of-Distribution.
 
-        If threshold_override is given, use it instead of the model's
-        default decision boundary (0 for sklearn IF).
+        Args:
+            embedding: Feature vector.
+            threshold_override: If provided, compare score() against this
+                threshold instead of using the model's built-in boundary.
         """
         if not self._is_loaded:
-            raise RuntimeError("Model not loaded")
-
-        embedding_2d = embedding.reshape(1, -1).astype(np.float32)
+            raise RuntimeError("OOD model not loaded — call load() first")
 
         if threshold_override is not None:
-            score = self.score(embedding)
-            return score < threshold_override
+            return self.score(embedding) < threshold_override
 
-        if self._backend == "onnx":
-            input_name = self._session.get_inputs()[0].name
-            result = self._session.run(None, {input_name: embedding_2d})
-            label = int(result[0][0])
-            return label == -1
-        else:
-            prediction = self._model.predict(embedding_2d)[0]
-            return prediction == -1
+        embedding_2d = embedding.reshape(1, -1).astype(np.float32)
+        input_name = self._session.get_inputs()[0].name
+        result = self._session.run(None, {input_name: embedding_2d})
+        return int(result[0][0]) == -1
