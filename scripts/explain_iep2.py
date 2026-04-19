@@ -19,13 +19,11 @@ import json
 import logging
 import os
 import sys
-import warnings
-from pathlib import Path
-
-import numpy as np
 
 # Set matplotlib backend before importing matplotlib
 import matplotlib
+import numpy as np
+
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 
@@ -169,7 +167,7 @@ def load_data(model_dir: str, embeddings_path: str):
 
     # Load label map
     try:
-        with open(label_map_path, 'r') as f:
+        with open(label_map_path) as f:
             label_map = json.load(f)
         logger.info(f"Loaded label map with {len(label_map)} classes")
     except Exception as e:

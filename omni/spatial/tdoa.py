@@ -51,9 +51,7 @@ References
 from __future__ import annotations
 
 import logging
-import math
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -178,7 +176,7 @@ class PipeSegment:
     lat_b:         float = 0.0
     lon_b:         float = 0.0
 
-    def position_from_a(self, delay_s: float) -> Optional[float]:
+    def position_from_a(self, delay_s: float) -> float | None:
         """Return leak distance from sensor A (metres) given the TDOA delay.
 
         Returns None if the estimate falls outside [0, pipe_length_m].
@@ -210,9 +208,9 @@ class TDOAResult:
     sensor_b_id:      str
     delay_s:          float          # Δt: sig_b arrival - sig_a arrival
     peak_correlation: float          # GCC-PHAT peak magnitude [0, 1]
-    dist_from_a_m:    Optional[float]  # leak position from sensor A (None if out-of-range)
-    lat:              Optional[float] = None
-    lon:              Optional[float] = None
+    dist_from_a_m:    float | None  # leak position from sensor A (None if out-of-range)
+    lat:              float | None = None
+    lon:              float | None = None
     pipe_material:    str  = _DEFAULT_MATERIAL
     wave_speed_ms:    float = 1_400.0
     uncertainty_m:    float = 0.0
@@ -300,7 +298,7 @@ def localize(
     return result
 
 
-def fuse_results(results: list[TDOAResult]) -> Optional[TDOAResult]:
+def fuse_results(results: list[TDOAResult]) -> TDOAResult | None:
     """Combine multiple TDOA results (from ≥ 2 sensor pairs) into one estimate.
 
     Uses GCC-PHAT peak magnitude as the fusion weight.
@@ -317,8 +315,8 @@ def fuse_results(results: list[TDOAResult]) -> Optional[TDOAResult]:
     if w_sum < 1e-9:
         return valid[0]
 
-    lat = sum(r.lat * w for r, w in zip(valid, weights)) / w_sum  # type: ignore[operator]
-    lon = sum(r.lon * w for r, w in zip(valid, weights)) / w_sum  # type: ignore[operator]
+    lat = sum(r.lat * w for r, w in zip(valid, weights, strict=False)) / w_sum  # type: ignore[operator]
+    lon = sum(r.lon * w for r, w in zip(valid, weights, strict=False)) / w_sum  # type: ignore[operator]
     unc = max(r.uncertainty_m for r in valid)   # conservative
 
     # Borrow attributes from best result

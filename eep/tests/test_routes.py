@@ -4,14 +4,13 @@ Unit tests for EEP routes.
 
 import io
 import json
+from unittest.mock import patch
 
 import numpy as np
 import pytest
 import soundfile as sf
-from fastapi.testclient import TestClient
-from unittest.mock import AsyncMock, patch
-
 from app.main import app
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture

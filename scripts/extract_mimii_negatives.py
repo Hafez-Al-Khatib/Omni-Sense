@@ -7,13 +7,14 @@ and saves with standardized naming for the Omni-Sense pipeline.
 """
 
 import argparse
+import random
 import struct
 import zipfile
+from collections import defaultdict
+from pathlib import Path
+
 import numpy as np
 import soundfile as sf
-from pathlib import Path
-from collections import defaultdict
-import random
 
 
 def read_wav_from_zip(zip_file, file_path):
@@ -31,7 +32,7 @@ def read_wav_from_zip(zip_file, file_path):
             if riff != b'RIFF':
                 return None, None
 
-            file_size = struct.unpack('<I', f.read(4))[0]
+            struct.unpack('<I', f.read(4))[0]
             wave = f.read(4)
             if wave != b'WAVE':
                 return None, None

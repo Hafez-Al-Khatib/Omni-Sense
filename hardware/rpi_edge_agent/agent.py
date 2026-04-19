@@ -34,10 +34,8 @@ import struct
 import sys
 import threading
 import time
-import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import paho.mqtt.client as mqtt
 
@@ -490,7 +488,7 @@ class EdgeAgent:
         payload = {
             "sensor_id": SENSOR_ID,
             "site_id": SITE_ID,
-            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "captured_at": datetime.now(UTC).isoformat(),
             "pcm_b64": pcm_b64,
             "edge_snr_db": round(snr_db, 2),
             "edge_vad_confidence": round(vad_confidence, 4),
@@ -509,7 +507,7 @@ class EdgeAgent:
     def _publish_telemetry(self) -> None:
         telem = {
             "sensor_id": SENSOR_ID,
-            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "captured_at": datetime.now(UTC).isoformat(),
             "battery_pct": round(_read_battery_pct(), 1),
             "temperature_c": round(_read_cpu_temp(), 2),
             "disk_free_mb": round(_read_disk_free_mb(), 1),

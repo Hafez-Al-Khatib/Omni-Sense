@@ -166,7 +166,8 @@ def simulate_with_wntr(scenario: str, seed: int = 42) -> list[dict]:
 
     cfg = SCENARIO_CONFIG[scenario]
 
-    import tempfile, os
+    import os
+    import tempfile
     with tempfile.NamedTemporaryFile(mode="w", suffix=".inp", delete=False, encoding="utf-8") as tmp:
         tmp.write(_NETWORK_INP)
         inp_path = tmp.name

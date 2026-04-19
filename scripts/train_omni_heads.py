@@ -110,10 +110,7 @@ def extract_dataset(
 
         # Pad/trim to 5 seconds
         target = sr * 5
-        if len(pcm) < target:
-            pcm = np.pad(pcm, (0, target - len(pcm)))
-        else:
-            pcm = pcm[:target]
+        pcm = np.pad(pcm, (0, target - len(pcm))) if len(pcm) < target else pcm[:target]
 
         try:
             feat = extract_features_with_meta(
@@ -205,14 +202,13 @@ def train_and_export(
     seed:         int = 42,
 ) -> dict:
     """Train XGB + RF, evaluate on val, export ONNX. Returns metrics dict."""
-    from sklearn.ensemble import RandomForestClassifier
-    from sklearn.metrics import classification_report, f1_score, roc_auc_score
     import xgboost as xgb
 
     # Export helpers
     from skl2onnx import convert_sklearn
     from skl2onnx.common.data_types import FloatTensorType
-    import onnx
+    from sklearn.ensemble import RandomForestClassifier
+    from sklearn.metrics import classification_report, f1_score, roc_auc_score
 
     train_idx, val_idx = recording_split(source_wavs, seed=seed)
     X_tr, y_tr = X[train_idx], y[train_idx]
@@ -309,7 +305,6 @@ def train_and_export(
         log.error("XGB ONNX export failed: %s", exc)
         # Fallback: try XGBoost's native ONNX export
         try:
-            import xgboost as xgb_mod
             booster = xgb_model.get_booster()
             booster.save_model(str(output_dir / "xgb_head.json"))
             log.info("XGB saved as JSON (ONNX export failed); convert manually.")

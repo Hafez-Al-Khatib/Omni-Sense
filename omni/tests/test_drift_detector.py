@@ -2,19 +2,19 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import math
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
-import pytest
 import numpy as np
+import pytest
 
-import omni.mlops.drift_detector as drift_mod
-from omni.mlops.drift_detector import DriftDetector, PSI_RETRAIN_THRESHOLD, PSI_WARN_THRESHOLD
-from omni.common.schemas import DetectionResult
-from omni.common.bus import InMemoryBus, Topics
 import omni.common.bus as bus_mod
-
+import omni.mlops.drift_detector as drift_mod
+from omni.common.bus import InMemoryBus
+from omni.common.schemas import DetectionResult
+from omni.mlops.drift_detector import PSI_RETRAIN_THRESHOLD, DriftDetector
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -31,7 +31,7 @@ def _make_detection(
         frame_id=uuid4(),
         sensor_id=sensor_id,
         site_id=site_id,
-        captured_at=datetime.now(timezone.utc),
+        captured_at=datetime.now(UTC),
         xgb_p_leak=xgb,
         rf_p_leak=rf,
         cnn_p_leak=fused,
@@ -92,10 +92,8 @@ def fresh_bus():
         yield bus
         bus.stop()
         task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await task
-        except asyncio.CancelledError:
-            pass
 
     return _runner
 
@@ -249,7 +247,7 @@ async def test_on_detection_publishes_retrain_on_drift():
             "frame_id": str(uuid4()),
             "sensor_id": d.sensor_id,
             "site_id": d.site_id,
-            "captured_at": datetime.now(timezone.utc).isoformat(),
+            "captured_at": datetime.now(UTC).isoformat(),
             "xgb_p_leak": d.xgb_p_leak,
             "rf_p_leak": d.rf_p_leak,
             "cnn_p_leak": d.cnn_p_leak,
@@ -265,10 +263,8 @@ async def test_on_detection_publishes_retrain_on_drift():
 
     bus.stop()
     bus_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await bus_task
-    except asyncio.CancelledError:
-        pass
 
     assert len(published) >= 1
     assert "psi_max" in published[0]

@@ -1,9 +1,10 @@
 """Audio preprocessing for IEP4 — identical to IEP1 (shared logic)."""
 
 import io
+
+import librosa
 import numpy as np
 import soundfile as sf
-import librosa
 
 _TARGET_SR = 16000
 _TARGET_SAMPLES = _TARGET_SR * 5  # 80 000 samples

@@ -1,15 +1,14 @@
 """Spatial fusion: weighted centroid, pipe snapping, hypothesis suppression."""
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 
-from omni.spatial.fusion import _haversine_m, _nearest_pipe, PIPE_NETWORK
-from omni.common.store import DigitalTwinStore, SensorTwin
 from omni.common.schemas import DetectionResult
+from omni.common.store import DigitalTwinStore, SensorTwin
+from omni.spatial.fusion import _haversine_m, _nearest_pipe
 
 
 def test_haversine_zero_same_point():
@@ -45,7 +44,7 @@ async def test_digital_twin_records_detection():
         frame_id=uuid4(),
         sensor_id="S-TEST",
         site_id="test",
-        captured_at=datetime.now(timezone.utc),
+        captured_at=datetime.now(UTC),
         xgb_p_leak=0.85,
         rf_p_leak=0.80,
         if_anomaly_score=0.2,
@@ -74,13 +73,13 @@ async def test_all_recent_leaks_respects_threshold():
     # One hot, one cold
     hot = DetectionResult(
         frame_id=uuid4(), sensor_id="S-A", site_id="test",
-        captured_at=datetime.now(timezone.utc),
+        captured_at=datetime.now(UTC),
         xgb_p_leak=0.9, rf_p_leak=0.9, if_anomaly_score=0.2, ood_score=0.2,
         fused_p_leak=0.85, fused_uncertainty=0.03, is_leak=True, is_ood=False,
     )
     cold = DetectionResult(
         frame_id=uuid4(), sensor_id="S-B", site_id="test",
-        captured_at=datetime.now(timezone.utc),
+        captured_at=datetime.now(UTC),
         xgb_p_leak=0.1, rf_p_leak=0.1, if_anomaly_score=0.05, ood_score=0.1,
         fused_p_leak=0.12, fused_uncertainty=0.01, is_leak=False, is_ood=False,
     )

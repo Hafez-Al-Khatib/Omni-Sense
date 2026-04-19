@@ -1,13 +1,13 @@
 """Unit tests for IEP4 CNN classifier (model-free path)."""
 
 import io
+
 import numpy as np
 import pytest
 import soundfile as sf
-from fastapi.testclient import TestClient
-
-from app.main import app
 from app.audio import preprocess_audio
+from app.main import app
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture

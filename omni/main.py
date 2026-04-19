@@ -14,26 +14,26 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import logging
 import sys
 
+from omni.alerts import engine
+from omni.audit import log as audit_log
+from omni.cmms import service as cmms_service
 from omni.common import store
 from omni.common.bus import get_bus
-from omni.common.schemas import AlertState
 from omni.common.store import SensorTwin
-from omni.edge.simulator import run_sensor
-from omni.edge.gateway import StubMQTTGateway
-from omni.eep import orchestrator
-from omni.spatial import fusion
-from omni.alerts import engine
+from omni.common.tracing import configure_tracing
 from omni.dispatch import router
-from omni.cmms import service as cmms_service
-from omni.notify import service as notify_service
-from omni.audit import log as audit_log
+from omni.edge.gateway import StubMQTTGateway
+from omni.edge.simulator import run_sensor
+from omni.eep import orchestrator
+from omni.mlops import feedback_watcher
 from omni.mlops.drift_detector import get_detector
 from omni.mlops.retraining_trigger import get_trigger
-from omni.mlops import feedback_watcher
-from omni.common.tracing import configure_tracing
+from omni.notify import service as notify_service
+from omni.spatial import fusion
 
 logging.basicConfig(
     level=logging.INFO,
@@ -161,10 +161,8 @@ async def run_demo(forever: bool = False, use_gateway: bool = False) -> None:
     if not forever:
         bus.stop()
         bus_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await bus_task
-        except asyncio.CancelledError:
-            pass
 
     # Final report
     all_alerts = await store.alerts().list_all()

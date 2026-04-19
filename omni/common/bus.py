@@ -10,8 +10,8 @@ import asyncio
 import json
 import logging
 from collections import defaultdict
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Optional
 
 from pydantic import BaseModel
 
@@ -78,7 +78,7 @@ class InMemoryBus:
 
 # Module-level singleton for the demo. In production each service owns its own
 # Kafka consumer group; this singleton collapses that into one process.
-_bus: Optional[InMemoryBus] = None
+_bus: InMemoryBus | None = None
 
 
 def get_bus() -> InMemoryBus:

@@ -23,11 +23,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 from collections import deque
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import numpy as np
 
@@ -67,10 +65,10 @@ class DriftDetector:
 
     def __init__(self, window_size: int = WINDOW_SIZE):
         self._window: deque[DetectionResult] = deque(maxlen=window_size)
-        self._reference: Optional[np.ndarray] = None   # (n_ref, 4) matrix
-        self._reference_centroid: Optional[np.ndarray] = None
+        self._reference: np.ndarray | None = None   # (n_ref, 4) matrix
+        self._reference_centroid: np.ndarray | None = None
         self._lock = asyncio.Lock()
-        self.latest_report: Optional[DriftReport] = None
+        self.latest_report: DriftReport | None = None
         self._report_counter: int = 0
 
     # ── Reference ────────────────────────────────────────────────────────────
@@ -122,7 +120,7 @@ class DriftDetector:
 
     # ── Evaluate ─────────────────────────────────────────────────────────────
 
-    async def evaluate(self) -> Optional[DriftReport]:
+    async def evaluate(self) -> DriftReport | None:
         async with self._lock:
             window_list = list(self._window)
 
@@ -165,7 +163,7 @@ class DriftDetector:
         )
 
         report = DriftReport(
-            evaluated_at=datetime.now(timezone.utc),
+            evaluated_at=datetime.now(UTC),
             n_samples=len(window_list),
             psi_xgb=psi_xgb,
             psi_rf=psi_rf,
@@ -215,7 +213,7 @@ class DriftDetector:
 
 
 # Module-level singleton
-_detector: Optional[DriftDetector] = None
+_detector: DriftDetector | None = None
 
 
 def get_detector() -> DriftDetector:

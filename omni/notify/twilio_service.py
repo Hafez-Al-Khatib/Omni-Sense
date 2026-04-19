@@ -33,8 +33,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections import deque
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 try:
     from prometheus_client import Counter
@@ -162,7 +161,7 @@ async def _send_sms(to: str, body: str, severity: str) -> None:
     result = await asyncio.to_thread(_post_message_sync, to, body)
     result["channel"] = "sms"
     result["severity"] = severity
-    result["sent_at"] = datetime.now(timezone.utc).isoformat()
+    result["sent_at"] = datetime.now(UTC).isoformat()
     SENT_LOG.append(result)
     SMS_COUNTER.labels(status=result["status"], severity=severity.lower()).inc()
     if result["status"] == "success":
@@ -182,7 +181,7 @@ async def _send_whatsapp(to_number: str, body: str, severity: str) -> None:
     result = await asyncio.to_thread(_post_message_sync, whatsapp_to, body)
     result["channel"] = "whatsapp"
     result["severity"] = severity
-    result["sent_at"] = datetime.now(timezone.utc).isoformat()
+    result["sent_at"] = datetime.now(UTC).isoformat()
     SENT_LOG.append(result)
     SMS_COUNTER.labels(status=result["status"], severity=severity.lower()).inc()
     if result["status"] == "success":
@@ -200,11 +199,11 @@ async def on_notify(payload: dict) -> None:
     falls back to stub (log-only) otherwise.
     """
     severity: str = (payload.get("severity") or "info").lower()
-    crew_id: Optional[str] = payload.get("crew_id")
+    crew_id: str | None = payload.get("crew_id")
 
     # Always stamp and log — this matches the stub's behaviour so INBOX
     # (in service.py) still fills for the ops console even in Twilio mode.
-    payload.setdefault("sent_at", datetime.now(timezone.utc).isoformat())
+    payload.setdefault("sent_at", datetime.now(UTC).isoformat())
     log.info(
         "notify → %s [%s] %s",
         payload.get("channel", "twilio"),
@@ -225,7 +224,7 @@ async def on_notify(payload: dict) -> None:
         return
 
     crew_map = _crew_numbers()
-    to_number: Optional[str] = crew_map.get(crew_id) if crew_id else None
+    to_number: str | None = crew_map.get(crew_id) if crew_id else None
 
     if not to_number:
         log.warning(

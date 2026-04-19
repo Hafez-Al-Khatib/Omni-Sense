@@ -1,9 +1,10 @@
-import pandas as pd 
-import numpy as np 
-from scipy.io import wavfile
-import librosa
-from pathlib import Path
 import json
+from pathlib import Path
+
+import librosa
+import numpy as np
+import pandas as pd
+from scipy.io import wavfile
 
 dataset_root = Path('./Accelerometer')
 processed_dir = Path('./Processed_audio_16k')
@@ -43,7 +44,7 @@ for csv_path in csv_files:
             "flow_rate_extracted" : "0.18" if "0.18" in file_stem else "unknown"
         })
 
-    except Exception as e:
+    except Exception:
         print(f"Skipping {csv_path.name}: e")
 
 

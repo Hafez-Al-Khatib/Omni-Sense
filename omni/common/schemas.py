@@ -5,9 +5,9 @@ so we can evolve without breaking consumers.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from enum import Enum
-from typing import Literal, Optional
+from datetime import UTC, datetime
+from enum import StrEnum
+from typing import Literal
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field
@@ -50,7 +50,7 @@ class TelemetrySample(BaseModel):
 
 
 # ─────────────────────────── Detection ────────────────────────────────
-class Severity(str, Enum):
+class Severity(StrEnum):
     INFO = "info"
     LOW = "low"
     MEDIUM = "medium"
@@ -70,13 +70,13 @@ class DetectionResult(BaseModel):
     sensor_id: str
     site_id: str
     captured_at: datetime
-    decided_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    decided_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     # Per-head outputs
-    yamnet_top_class: Optional[str] = None
+    yamnet_top_class: str | None = None
     xgb_p_leak: float = Field(ge=0.0, le=1.0)
     rf_p_leak: float = Field(ge=0.0, le=1.0)
-    cnn_p_leak: Optional[float] = None
+    cnn_p_leak: float | None = None
     if_anomaly_score: float
     ood_score: float = Field(description="Deep-SVDD distance; >1.0 = out-of-distribution")
 
@@ -99,19 +99,19 @@ class LeakHypothesis(BaseModel):
 
     schema_version: Literal["1"] = "1"
     hypothesis_id: UUID = Field(default_factory=uuid4)
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     contributing_detection_ids: list[UUID]
     lat: float
     lon: float
     uncertainty_m: float = Field(description="95% confidence radius in meters")
-    pipe_segment_id: Optional[str] = None
-    distance_along_pipe_m: Optional[float] = None
-    estimated_flow_lps: Optional[float] = None
+    pipe_segment_id: str | None = None
+    distance_along_pipe_m: float | None = None
+    estimated_flow_lps: float | None = None
     confidence: float = Field(ge=0.0, le=1.0)
 
 
 # ─────────────────────────── Alerts ───────────────────────────────────
-class AlertState(str, Enum):
+class AlertState(StrEnum):
     NEW = "NEW"
     ACKNOWLEDGED = "ACKNOWLEDGED"
     DISPATCHED = "DISPATCHED"
@@ -126,8 +126,8 @@ class Alert(BaseModel):
     schema_version: Literal["1"] = "1"
     alert_id: UUID = Field(default_factory=uuid4)
     hypothesis_id: UUID
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     state: AlertState = AlertState.NEW
     severity: Severity
     severity_score: float = Field(ge=0.0, le=100.0)
@@ -135,15 +135,15 @@ class Alert(BaseModel):
     summary: str
     lat: float
     lon: float
-    pipe_segment_id: Optional[str] = None
-    estimated_loss_lph: Optional[float] = None
-    assigned_crew_id: Optional[str] = None
-    sla_due_at: Optional[datetime] = None
+    pipe_segment_id: str | None = None
+    estimated_loss_lph: float | None = None
+    assigned_crew_id: str | None = None
+    sla_due_at: datetime | None = None
     history: list[dict] = Field(default_factory=list)
 
 
 # ─────────────────────────── Work orders ──────────────────────────────
-class WorkOrderStatus(str, Enum):
+class WorkOrderStatus(StrEnum):
     DRAFT = "DRAFT"
     DISPATCHED = "DISPATCHED"
     IN_PROGRESS = "IN_PROGRESS"
@@ -155,29 +155,29 @@ class WorkOrder(BaseModel):
     schema_version: Literal["1"] = "1"
     work_order_id: UUID = Field(default_factory=uuid4)
     alert_id: UUID
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     status: WorkOrderStatus = WorkOrderStatus.DRAFT
     crew_id: str
     eta_minutes: int
     parts_required: list[str] = Field(default_factory=list)
     notes: str = ""
-    completed_at: Optional[datetime] = None
-    repair_cost_usd: Optional[float] = None
-    mtbf_days: Optional[float] = None
+    completed_at: datetime | None = None
+    repair_cost_usd: float | None = None
+    mtbf_days: float | None = None
 
 
 # ─────────────────────────── Audit ────────────────────────────────────
 class AuditEvent(BaseModel):
     schema_version: Literal["1"] = "1"
     event_id: UUID = Field(default_factory=uuid4)
-    ts: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    ts: datetime = Field(default_factory=lambda: datetime.now(UTC))
     actor: str
     # Primary action field — use either action (legacy) or event_type (preferred)
-    action: Optional[str] = None
-    event_type: Optional[str] = None   # e.g. "mlops.retrain_triggered"
-    resource_type: Optional[str] = None
-    resource_id: Optional[str] = None
-    details: Optional[dict] = None     # arbitrary structured payload
+    action: str | None = None
+    event_type: str | None = None   # e.g. "mlops.retrain_triggered"
+    resource_type: str | None = None
+    resource_id: str | None = None
+    details: dict | None = None     # arbitrary structured payload
     payload_hash_sha256: str = ""
     prev_hash: str = ""
     signature_ed25519: str = ""
@@ -204,10 +204,10 @@ class ScadaReading(BaseModel):
         description="Timestamp of the SCADA measurement (UTC)"
     )
     pressure_bar: float = Field(description="Line pressure in bar")
-    flow_lps: Optional[float] = Field(
+    flow_lps: float | None = Field(
         default=None, description="Flow rate in litres per second"
     )
-    temperature_c: Optional[float] = Field(
+    temperature_c: float | None = Field(
         default=None, description="Water temperature in °C"
     )
     node_ids: list[str] = Field(

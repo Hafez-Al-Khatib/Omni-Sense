@@ -11,11 +11,10 @@ Environment:
     GOLDEN_DATASET_PATH: Path to golden_dataset_v1.csv
 """
 
-import os
 import json
+import os
 from pathlib import Path
 
-import numpy as np
 import pytest
 
 # ─── Configuration ──────────────────────────────────────────────────────────

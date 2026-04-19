@@ -26,17 +26,13 @@ or an MLflow Project run to a separate compute node.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
-import numpy as np
-
-from omni.common.bus import Topics, get_bus
+from omni.common.bus import get_bus
 
 log = logging.getLogger("retrain")
 
@@ -54,7 +50,7 @@ MODEL_UPDATED_TOPIC = "mlops.model.updated.v1"
 
 class RetrainingTrigger:
     def __init__(self):
-        self._last_retrain: Optional[datetime] = None
+        self._last_retrain: datetime | None = None
         self._retrain_count: int = 0
         self._lock = asyncio.Lock()
         self.history: list[dict] = []
@@ -64,7 +60,7 @@ class RetrainingTrigger:
     def _in_cooldown(self) -> bool:
         if self._last_retrain is None:
             return False
-        elapsed = (datetime.now(timezone.utc) - self._last_retrain).total_seconds()
+        elapsed = (datetime.now(UTC) - self._last_retrain).total_seconds()
         return elapsed < COOLDOWN_MINUTES * 60
 
     # ── Feedback corpus ──────────────────────────────────────────────────────
@@ -80,14 +76,12 @@ class RetrainingTrigger:
 
     # ── In-process quality evaluation ────────────────────────────────────────
 
-    def _evaluate_current_model(self) -> Optional[dict]:
+    def _evaluate_current_model(self) -> dict | None:
         """Quick quality check: load the current IEP2 models and run 5-fold CV.
 
         Returns dict with f1, roc_auc or None if models can't be loaded.
         """
         try:
-            import joblib
-            from pathlib import Path as P
 
             xgb_path = MODEL_DIR_IEP2 / "xgboost_classifier.joblib"
             rf_path  = MODEL_DIR_IEP2 / "rf_classifier.joblib"
@@ -116,7 +110,7 @@ class RetrainingTrigger:
     async def retrain(self, trigger_payload: dict) -> None:
         async with self._lock:
             if self._in_cooldown():
-                elapsed = (datetime.now(timezone.utc) - self._last_retrain).total_seconds() / 60
+                elapsed = (datetime.now(UTC) - self._last_retrain).total_seconds() / 60
                 log.info(
                     "retrain request ignored (cooldown: %.0f / %d min remaining)",
                     elapsed, COOLDOWN_MINUTES,
@@ -136,7 +130,7 @@ class RetrainingTrigger:
             metrics = self._evaluate_current_model()
             record = {
                 "triggered_at": trigger_payload.get("triggered_at"),
-                "retrain_at": datetime.now(timezone.utc).isoformat(),
+                "retrain_at": datetime.now(UTC).isoformat(),
                 "trigger_psi_max": trigger_payload.get("psi_max"),
                 "trigger_ood_rate": trigger_payload.get("ood_rate"),
                 "feedback_samples": feedback_n,
@@ -176,7 +170,7 @@ class RetrainingTrigger:
                         "reason": "drift_detected_but_model_healthy",
                         "metrics": metrics,
                         "trigger": trigger_payload,
-                        "at": datetime.now(timezone.utc).isoformat(),
+                        "at": datetime.now(UTC).isoformat(),
                     },
                 )
             else:
@@ -191,14 +185,14 @@ class RetrainingTrigger:
                     await get_bus().publish(
                         MODEL_UPDATED_TOPIC,
                         {
-                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                            "updated_at": datetime.now(UTC).isoformat(),
                             "feedback_samples_used": feedback_n,
                             "previous_f1": f1,
                             "previous_auc": auc,
                         },
                     )
 
-            self._last_retrain = datetime.now(timezone.utc)
+            self._last_retrain = datetime.now(UTC)
             self._retrain_count += 1
             self.history.append(record)
 
@@ -248,7 +242,7 @@ class RetrainingTrigger:
 
 
 # Module-level singleton
-_trigger: Optional[RetrainingTrigger] = None
+_trigger: RetrainingTrigger | None = None
 
 
 def get_trigger() -> RetrainingTrigger:

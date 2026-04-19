@@ -2,16 +2,16 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+import contextlib
+from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
 
 import pytest
 
-import omni.mlops.retraining_trigger as retrain_mod
-from omni.mlops.retraining_trigger import RetrainingTrigger, COOLDOWN_MINUTES, get_trigger
-from omni.common.bus import InMemoryBus
 import omni.common.bus as bus_mod
-
+import omni.mlops.retraining_trigger as retrain_mod
+from omni.common.bus import InMemoryBus
+from omni.mlops.retraining_trigger import COOLDOWN_MINUTES, RetrainingTrigger, get_trigger
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -26,7 +26,7 @@ def reset_all():
 
 def _trigger_payload(psi: float = 0.30, ood: float = 0.18) -> dict:
     return {
-        "triggered_at": datetime.now(timezone.utc).isoformat(),
+        "triggered_at": datetime.now(UTC).isoformat(),
         "psi_max": psi,
         "ood_rate": ood,
         "drift_level": "significant",
@@ -44,10 +44,8 @@ async def _run_with_bus(coro):
     finally:
         bus.stop()
         bus_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await bus_task
-        except asyncio.CancelledError:
-            pass
 
 
 # ── Cooldown ──────────────────────────────────────────────────────────────────
@@ -59,13 +57,13 @@ def test_no_cooldown_on_first_call():
 
 def test_in_cooldown_immediately_after_retrain():
     t = RetrainingTrigger()
-    t._last_retrain = datetime.now(timezone.utc)
+    t._last_retrain = datetime.now(UTC)
     assert t._in_cooldown()
 
 
 def test_cooldown_clears_after_elapsed():
     t = RetrainingTrigger()
-    t._last_retrain = datetime.now(timezone.utc) - timedelta(
+    t._last_retrain = datetime.now(UTC) - timedelta(
         minutes=COOLDOWN_MINUTES + 1
     )
     assert not t._in_cooldown()
@@ -74,7 +72,7 @@ def test_cooldown_clears_after_elapsed():
 @pytest.mark.asyncio
 async def test_retrain_ignored_during_cooldown():
     t = RetrainingTrigger()
-    t._last_retrain = datetime.now(timezone.utc)
+    t._last_retrain = datetime.now(UTC)
 
     await t.retrain(_trigger_payload())
 

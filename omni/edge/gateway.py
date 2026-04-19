@@ -38,10 +38,8 @@ import logging
 import os
 import ssl
 import struct
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -93,7 +91,7 @@ async def _handle_acoustic(topic: str, payload: bytes) -> None:
         _ = data["sensor_id"], data["site_id"], data["pcm_b64"]
         # Patch captured_at if missing (edge clock drift fallback)
         if "captured_at" not in data:
-            data["captured_at"] = datetime.now(timezone.utc).isoformat()
+            data["captured_at"] = datetime.now(UTC).isoformat()
         frame = AcousticFrame(**data)
         await get_bus().publish(Topics.ACOUSTIC_FRAME, frame)
         log.debug("acoustic frame from %s forwarded", frame.sensor_id)
@@ -107,7 +105,7 @@ async def _handle_telemetry(topic: str, payload: bytes) -> None:
     try:
         data = json.loads(payload)
         if "captured_at" not in data:
-            data["captured_at"] = datetime.now(timezone.utc).isoformat()
+            data["captured_at"] = datetime.now(UTC).isoformat()
         sample = TelemetrySample(**data)
         await get_bus().publish(Topics.TELEMETRY, sample)
         log.debug("telemetry from %s: batt=%.0f%%", sample.sensor_id, sample.battery_pct)
@@ -135,7 +133,7 @@ class LiveMQTTGateway:
             client_id="omni-gateway-01",
             protocol=mqtt_client.MQTTv5,
         )
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def _on_connect(self, client, userdata, flags, rc, props=None) -> None:
         if rc == 0:
@@ -222,7 +220,7 @@ class StubMQTTGateway:
                 payload = json.dumps({
                     "sensor_id": sensor["sensor_id"],
                     "site_id":   sensor["site_id"],
-                    "captured_at": datetime.now(timezone.utc).isoformat(),
+                    "captured_at": datetime.now(UTC).isoformat(),
                     "pcm_b64": self._pcm_b64(regime),
                     "edge_snr_db": 12.0 if regime != "quiet" else 3.0,
                     "edge_vad_confidence": 0.9 if regime != "quiet" else 0.1,
@@ -235,7 +233,7 @@ class StubMQTTGateway:
                     battery = max(0.0, battery - 0.03)
                     tel_payload = json.dumps({
                         "sensor_id": sensor["sensor_id"],
-                        "captured_at": datetime.now(timezone.utc).isoformat(),
+                        "captured_at": datetime.now(UTC).isoformat(),
                         "battery_pct": battery,
                         "temperature_c": 28.0,
                         "disk_free_mb": 3000.0,
@@ -254,14 +252,14 @@ class StubMQTTGateway:
         )
         await asyncio.gather(*[
             self._stream_sensor(sensor, schedule)
-            for sensor, schedule in zip(self._sensors, schedules)
+            for sensor, schedule in zip(self._sensors, schedules, strict=False)
         ])
 
 
 # ─────────────────────────── Factory ──────────────────────────────────────────
 
-def create_gateway(use_stub: bool = True, sensors: Optional[list] = None,
-                   cadence_s: float = 1.0) -> "LiveMQTTGateway | StubMQTTGateway":
+def create_gateway(use_stub: bool = True, sensors: list | None = None,
+                   cadence_s: float = 1.0) -> LiveMQTTGateway | StubMQTTGateway:
     """Factory: returns a live gateway in production, stub in demo/CI."""
     if not use_stub:
         try:

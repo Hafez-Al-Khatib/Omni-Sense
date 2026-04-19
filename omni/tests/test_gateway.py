@@ -3,23 +3,23 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import json
 import struct
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import numpy as np
 import pytest
 
+import omni.common.bus as bus_mod
+from omni.common.bus import InMemoryBus, Topics
 from omni.edge.gateway import (
+    MAX_PAYLOAD_BYTES,
+    StubMQTTGateway,
     _handle_acoustic,
     _handle_telemetry,
     _route,
-    StubMQTTGateway,
-    MAX_PAYLOAD_BYTES,
 )
-from omni.common.bus import InMemoryBus, Topics
-import omni.common.bus as bus_mod
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ def _acoustic_payload(
     return json.dumps({
         "sensor_id":           sensor_id,
         "site_id":             site_id,
-        "captured_at":         datetime.now(timezone.utc).isoformat(),
+        "captured_at":         datetime.now(UTC).isoformat(),
         "pcm_b64":             pcm_b64 or _pcm_b64(),
         "edge_snr_db":         14.0,
         "edge_vad_confidence": 0.85,
@@ -65,7 +65,7 @@ def _telemetry_payload(
 ) -> bytes:
     return json.dumps({
         "sensor_id":       sensor_id,
-        "captured_at":     datetime.now(timezone.utc).isoformat(),
+        "captured_at":     datetime.now(UTC).isoformat(),
         "battery_pct":     battery,
         "temperature_c":   27.5,
         "disk_free_mb":    3000.0,
@@ -78,16 +78,12 @@ def _telemetry_payload(
 async def _drain(bus: InMemoryBus, n_messages: int = 1, timeout: float = 1.0) -> None:
     """Run the bus until n_messages have been dispatched or timeout expires."""
     task = asyncio.create_task(bus.run())
-    try:
+    with contextlib.suppress(TimeoutError):
         await asyncio.wait_for(asyncio.sleep(timeout), timeout=timeout + 0.1)
-    except asyncio.TimeoutError:
-        pass
     bus.stop()
     task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
 
 
 # ── Acoustic handler ──────────────────────────────────────────────────────────
@@ -302,10 +298,8 @@ async def test_stub_gateway_publishes_acoustic_frames():
 
     bus.stop()
     bus_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await bus_task
-    except asyncio.CancelledError:
-        pass
 
     assert len(acoustic_frames) == 3
     assert all(f["sensor_id"] == "S-STUB-01" for f in acoustic_frames)
@@ -336,10 +330,8 @@ async def test_stub_gateway_emits_telemetry_every_5_frames():
 
     bus.stop()
     bus_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await bus_task
-    except asyncio.CancelledError:
-        pass
 
     assert len(acoustic_frames) == 10
     assert len(telemetry_samples) == 2
@@ -378,10 +370,8 @@ async def test_stub_gateway_multi_sensor():
 
     bus.stop()
     bus_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await bus_task
-    except asyncio.CancelledError:
-        pass
 
     sensor_ids = {f["sensor_id"] for f in frames}
     assert "S-A" in sensor_ids

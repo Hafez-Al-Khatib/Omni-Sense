@@ -37,7 +37,6 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
@@ -65,7 +64,6 @@ def _build_autoencoder():
     Not imported at module level so that torch is NOT required for
     ONNX-runtime-only deployments.
     """
-    import torch
     import torch.nn as nn
 
     class _EncBlock(nn.Module):
@@ -186,7 +184,7 @@ class AutoencoderOODDetector:
     def __init__(self) -> None:
         self._session   = None          # ONNX session
         self._model     = None          # PyTorch model
-        self._backend: Optional[str] = None
+        self._backend: str | None = None
         self._threshold: float = 0.05  # default; overridden by calibrated value
         self._is_loaded = False
 
@@ -322,7 +320,7 @@ class AutoencoderOODDetector:
     def is_anomalous(
         self,
         spectrogram: np.ndarray,
-        threshold_override: Optional[float] = None,
+        threshold_override: float | None = None,
     ) -> bool:
         """
         Return True if the spectrogram is likely OOD (novel acoustic env).
@@ -339,7 +337,7 @@ class AutoencoderOODDetector:
     def is_anomalous_wav(
         self,
         waveform: np.ndarray,
-        threshold_override: Optional[float] = None,
+        threshold_override: float | None = None,
     ) -> tuple[bool, float]:
         """
         Check OOD status from raw waveform.
@@ -419,7 +417,7 @@ def export_to_onnx(
 
 # ─── Module-level singleton ───────────────────────────────────────────────────
 
-_detector: Optional[AutoencoderOODDetector] = None
+_detector: AutoencoderOODDetector | None = None
 
 
 def get_autoencoder_detector() -> AutoencoderOODDetector:

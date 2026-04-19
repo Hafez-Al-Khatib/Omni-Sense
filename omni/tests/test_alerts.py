@@ -1,18 +1,16 @@
 """Alert engine: severity scoring, FSM transitions, SLA assignment."""
-import asyncio
-from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
 
 from omni.alerts.engine import _score
+from omni.common import store
 from omni.common.schemas import (
     Alert,
     AlertState,
     LeakHypothesis,
     Severity,
 )
-from omni.common import store
 
 
 def _make_hypothesis(pipe_id: str, confidence: float, flow: float) -> LeakHypothesis:

@@ -5,22 +5,23 @@ that at least one end-to-end path completes: frame → detection → hypothesis
 → alert → work order → resolved + audit chain intact.
 """
 import asyncio
-from datetime import datetime, timezone
+import contextlib
+from datetime import UTC, datetime
 
 import pytest
 
+import omni.common.bus as bus_mod
+from omni.alerts import engine
+from omni.audit import log as audit_log
+from omni.cmms import service as cmms
 from omni.common import store
-from omni.common.bus import InMemoryBus, Topics
+from omni.common.bus import InMemoryBus
 from omni.common.store import SensorTwin
+from omni.dispatch import router
 from omni.edge.simulator import run_sensor
 from omni.eep import orchestrator
-from omni.spatial import fusion
-from omni.alerts import engine
-from omni.dispatch import router
-from omni.cmms import service as cmms
 from omni.notify import service as notify
-from omni.audit import log as audit_log
-import omni.common.bus as bus_mod
+from omni.spatial import fusion
 
 
 @pytest.mark.asyncio
@@ -35,7 +36,7 @@ async def test_end_to_end_leak_detected_and_dispatched():
 
     # Reset spatial debounce
     import omni.spatial.fusion as sf_mod
-    sf_mod._last_publish = datetime.min.replace(tzinfo=timezone.utc)
+    sf_mod._last_publish = datetime.min.replace(tzinfo=UTC)
 
     orchestrator.wire()
     fusion.wire()
@@ -64,10 +65,8 @@ async def test_end_to_end_leak_detected_and_dispatched():
 
     bus.stop()
     bus_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await bus_task
-    except asyncio.CancelledError:
-        pass
 
     # Assertions
     all_alerts = await store.alerts().list_all()

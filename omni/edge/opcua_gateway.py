@@ -38,13 +38,12 @@ The model adds:
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import math
 import os
 import random
-import time
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
 from omni.common.bus import Topics, get_bus
 from omni.common.schemas import ScadaReading
@@ -124,7 +123,7 @@ def _transient_spike(rng: random.Random) -> float:
 
 def _stub_reading(sensor_id: str, node_ids: list[str]) -> ScadaReading:
     """Generate one synthetic ScadaReading for the Beirut water network stub."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     hour_utc = now.hour + now.minute / 60.0
 
     rng = random.Random()
@@ -168,17 +167,17 @@ class OpcUaScadaClient:
     def __init__(
         self,
         endpoint: str = OPCUA_ENDPOINT,
-        node_ids: Optional[dict[str, list[str]]] = None,
+        node_ids: dict[str, list[str]] | None = None,
         poll_interval_s: float = 5.0,
     ) -> None:
         self._endpoint = endpoint
         self._node_ids: dict[str, list[str]] = node_ids or _parse_node_ids()
         self._poll_interval_s = poll_interval_s
-        self._client: Optional[object] = None  # asyncua.Client when live
-        self._subscription: Optional[object] = None
+        self._client: object | None = None  # asyncua.Client when live
+        self._subscription: object | None = None
         self._running: bool = False
         self._use_stub: bool = False
-        self._poll_task: Optional[asyncio.Task] = None
+        self._poll_task: asyncio.Task | None = None
 
         # Detect asyncua availability at init time
         try:
@@ -193,7 +192,7 @@ class OpcUaScadaClient:
 
     # ── Public API ────────────────────────────────────────────────────────────
 
-    async def poll_forever(self, interval_s: Optional[float] = None) -> None:
+    async def poll_forever(self, interval_s: float | None = None) -> None:
         """Periodic polling fallback.  Publishes readings at each interval."""
         interval = interval_s or self._poll_interval_s
         log.info("OPC-UA poll loop started (interval=%.1fs)", interval)
@@ -224,10 +223,8 @@ class OpcUaScadaClient:
         self._running = False
         if self._poll_task and not self._poll_task.done():
             self._poll_task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError):
                 await self._poll_task
-            except asyncio.CancelledError:
-                pass
         await self._disconnect()
 
     # ── Internal stub helpers ─────────────────────────────────────────────────
@@ -311,7 +308,6 @@ class OpcUaScadaClient:
 
     async def _start_subscription(self) -> None:
         """Create an OPC-UA subscription and register data-change handlers."""
-        from asyncua import ua  # type: ignore[import]
 
         handler = _DataChangeHandler(self)
         sub = await self._client.create_subscription(  # type: ignore[union-attr]
@@ -337,14 +333,14 @@ class OpcUaScadaClient:
 
     async def _read_live(
         self, sensor_id: str, nodes: list[str]
-    ) -> Optional[ScadaReading]:
+    ) -> ScadaReading | None:
         """Read current values from OPC-UA nodes for one sensor."""
         if self._client is None:
             return None
         try:
-            pressure: Optional[float] = None
-            flow: Optional[float] = None
-            temp: Optional[float] = None
+            pressure: float | None = None
+            flow: float | None = None
+            temp: float | None = None
 
             for idx, node_id_str in enumerate(nodes[:3]):
                 node = self._client.get_node(node_id_str)  # type: ignore[union-attr]
@@ -362,7 +358,7 @@ class OpcUaScadaClient:
 
             return ScadaReading(
                 sensor_id=sensor_id,
-                captured_at=datetime.now(timezone.utc),
+                captured_at=datetime.now(UTC),
                 pressure_bar=round(pressure, 3),
                 flow_lps=round(flow, 2) if flow is not None else None,
                 temperature_c=round(temp, 2) if temp is not None else None,
@@ -399,7 +395,7 @@ class _DataChangeHandler:
         if 0 in buf:
             asyncio.get_event_loop().create_task(self._emit(sensor_id, buf.copy()))
 
-    def _reverse_lookup(self, node_id_str: str) -> tuple[Optional[str], int]:
+    def _reverse_lookup(self, node_id_str: str) -> tuple[str | None, int]:
         for sensor_id, nodes in self.node_ids.items():
             for idx, nid in enumerate(nodes):
                 if nid == node_id_str:
@@ -409,7 +405,7 @@ class _DataChangeHandler:
     async def _emit(self, sensor_id: str, buf: dict[int, float]) -> None:
         reading = ScadaReading(
             sensor_id=sensor_id,
-            captured_at=datetime.now(timezone.utc),
+            captured_at=datetime.now(UTC),
             pressure_bar=round(buf[0], 3),
             flow_lps=round(buf[1], 2) if 1 in buf else None,
             temperature_c=round(buf[2], 2) if 2 in buf else None,
@@ -424,7 +420,7 @@ class _DataChangeHandler:
 
 # ─────────────────────── Module-level singleton ───────────────────────────────
 
-_gateway: Optional[OpcUaScadaClient] = None
+_gateway: OpcUaScadaClient | None = None
 
 
 def get_gateway() -> OpcUaScadaClient:

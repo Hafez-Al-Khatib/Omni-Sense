@@ -30,8 +30,8 @@ Output:
 
 import argparse
 import warnings
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
 import pandas as pd
@@ -48,9 +48,9 @@ def _build_local_embedding_fn() -> Callable[[Path], np.ndarray]:
     Load YAMNet from TF Hub and return a callable that extracts
     a mean-pooled 1024-d embedding from a WAV file path.
     """
+    import soundfile as sf
     import tensorflow as tf
     import tensorflow_hub as hub
-    import soundfile as sf
 
     print("  Loading YAMNet from TensorFlow Hub (local mode)...")
     model = hub.load("https://tfhub.dev/google/yamnet/1")

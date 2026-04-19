@@ -10,10 +10,8 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime, timezone
-from typing import Optional
-from uuid import UUID
 
+from omni.common import store
 from omni.common.bus import Topics, get_bus
 from omni.common.schemas import (
     Alert,
@@ -22,7 +20,6 @@ from omni.common.schemas import (
     WorkOrder,
     WorkOrderStatus,
 )
-from omni.common import store
 
 log = logging.getLogger("dispatch")
 
@@ -69,7 +66,7 @@ def _haversine_km(lat1, lon1, lat2, lon2) -> float:
     return 2 * R * math.asin(math.sqrt(a))
 
 
-def _choose_crew(alert: Alert) -> Optional[dict]:
+def _choose_crew(alert: Alert) -> dict | None:
     needed = {"leak_repair"}
     if alert.severity in (Severity.HIGH, Severity.CRITICAL):
         needed.add("excavation")

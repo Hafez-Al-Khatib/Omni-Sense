@@ -9,20 +9,18 @@ the Isolation Forest threshold.
 """
 
 import io
-import json
 import logging
 
 import numpy as np
 import soundfile as sf
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
-from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.middleware.rate_limiter import limiter
 from app.services.orchestrator import (
+    OrchestratorError,
     call_iep1_embed,
     call_iep2_calibrate,
-    OrchestratorError,
 )
 
 logger = logging.getLogger("eep.calibrate")

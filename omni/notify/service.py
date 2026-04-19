@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from omni.common.bus import Topics, get_bus
 from omni.notify import twilio_service
@@ -38,7 +38,7 @@ async def on_notify(payload: dict) -> None:
     INBOX is always populated so the ops console can display recent
     notifications even when Twilio is not configured.
     """
-    payload["sent_at"] = datetime.now(timezone.utc).isoformat()
+    payload["sent_at"] = datetime.now(UTC).isoformat()
     INBOX.append(payload)
     log.info(
         "notify → [%s] %s",

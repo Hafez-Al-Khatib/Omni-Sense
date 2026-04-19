@@ -40,19 +40,20 @@ are defined with a realistic 120 m separation and cast-iron pipe material.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import math
-from datetime import datetime, timedelta, timezone
-from typing import Optional
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
+from omni.common import store
 from omni.common.bus import Topics, get_bus
 from omni.common.schemas import DetectionResult, LeakHypothesis
-from omni.common import store
 from omni.spatial.tdoa import (
-    PipeSegment, TDOAResult, localize, fuse_results, wave_speed,
+    PipeSegment,
+    TDOAResult,
+    fuse_results,
+    localize,
 )
 
 log = logging.getLogger("spatial")
@@ -112,7 +113,7 @@ def cache_pcm(sensor_id: str, pcm: np.ndarray, sr: int, captured_at: datetime) -
 
 
 def _evict_stale_pcm() -> None:
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=_PCM_TTL_S)
+    cutoff = datetime.now(UTC) - timedelta(seconds=_PCM_TTL_S)
     stale  = [k for k, (_, _, ts) in _pcm_cache.items() if ts < cutoff]
     for k in stale:
         del _pcm_cache[k]
@@ -139,7 +140,7 @@ def _nearest_pipe(lat: float, lon: float) -> tuple[str, float]:
 
 def _try_tdoa(
     hot_detections: list[DetectionResult],
-) -> Optional[tuple[float, float, float, str, float]]:
+) -> tuple[float, float, float, str, float] | None:
     """Attempt TDOA localization using cached PCM frames.
 
     Returns (lat, lon, uncertainty_m, pipe_segment_id, confidence) or None.
@@ -209,9 +210,9 @@ def _try_tdoa(
 
 async def _centroid_fallback(
     hot: list[DetectionResult],
-) -> Optional[tuple[float, float, float, str, float]]:
+) -> tuple[float, float, float, str, float] | None:
     """Weighted centroid — used when TDOA has insufficient data."""
-    weights, lats, lons, ids = [], [], [], []
+    weights, lats, lons, _ids = [], [], [], []
     for det in hot:
         t = store.twins().twins.get(det.sensor_id)
         if not t:
@@ -225,12 +226,12 @@ async def _centroid_fallback(
         return None
 
     w_sum = sum(weights)
-    lat   = sum(w * x for w, x in zip(weights, lats)) / w_sum
-    lon   = sum(w * x for w, x in zip(weights, lons)) / w_sum
+    lat   = sum(w * x for w, x in zip(weights, lats, strict=False)) / w_sum
+    lon   = sum(w * x for w, x in zip(weights, lons, strict=False)) / w_sum
 
     # Weighted standard deviation → uncertainty in metres
-    var_lat = sum(w * (x - lat)**2 for w, x in zip(weights, lats)) / w_sum
-    var_lon = sum(w * (x - lon)**2 for w, x in zip(weights, lons)) / w_sum
+    var_lat = sum(w * (x - lat)**2 for w, x in zip(weights, lats, strict=False)) / w_sum
+    var_lon = sum(w * (x - lon)**2 for w, x in zip(weights, lons, strict=False)) / w_sum
     uncertainty_m = max(
         10.0,
         math.sqrt(var_lat * 111_000**2 +
@@ -247,10 +248,10 @@ async def _centroid_fallback(
 
 # ─── Main fusion ──────────────────────────────────────────────────────────────
 
-_last_publish = datetime.min.replace(tzinfo=timezone.utc)
+_last_publish = datetime.min.replace(tzinfo=UTC)
 
 
-async def _try_fuse() -> Optional[LeakHypothesis]:
+async def _try_fuse() -> LeakHypothesis | None:
     hot = await store.twins().all_recent_leaks(
         min_p=0.55, horizon_s=CORRELATION_WINDOW_S
     )
@@ -302,7 +303,7 @@ async def on_detection(payload: dict) -> None:
     if not det.is_leak:
         return
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     if now - _last_publish < _MIN_GAP:
         return
 

@@ -13,11 +13,11 @@ No TensorFlow dependency — feature extraction is pure librosa.
 import logging
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from prometheus_client import Histogram, Counter
+from prometheus_client import Counter, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.feature_extractor import feature_extractor, N_FEATURES
 from app.audio_processor import preprocess_audio
+from app.feature_extractor import N_FEATURES, feature_extractor
 from app.schemas import EmbeddingResponse, HealthResponse
 
 # ─── Logging ──────────────────────────────────────────────────────────────────

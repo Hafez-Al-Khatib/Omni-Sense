@@ -1,5 +1,6 @@
 """Event bus: publish/subscribe, fan-out isolation, stop/start."""
 import asyncio
+import contextlib
 
 import pytest
 
@@ -21,10 +22,8 @@ async def test_single_subscriber_receives_message():
     await asyncio.sleep(0.05)
     bus.stop()
     task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
 
     assert len(received) == 1
     assert received[0]["value"] == 42
@@ -46,10 +45,8 @@ async def test_fan_out_multiple_subscribers():
     await asyncio.sleep(0.05)
     bus.stop()
     task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
 
     assert log_a == [{"n": 1}]
     assert log_b == [{"n": 1}]
@@ -74,10 +71,8 @@ async def test_failing_handler_does_not_poison_others():
     await asyncio.sleep(0.05)
     bus.stop()
     task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass
 
     assert ok_log == [{"msg": "hello"}]
 
@@ -90,7 +85,5 @@ async def test_no_subscribers_no_crash():
     await asyncio.sleep(0.02)
     bus.stop()
     task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await task
-    except asyncio.CancelledError:
-        pass

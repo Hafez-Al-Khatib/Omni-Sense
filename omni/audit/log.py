@@ -13,8 +13,6 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Optional
 
 from omni.common.bus import Topics, get_bus
 from omni.common.schemas import AuditEvent
@@ -79,7 +77,7 @@ async def on_state(payload: dict) -> None:
     _record("alert-engine", "alert_transitioned", "alert", payload.get("alert_id", ""), payload)
 
 
-def verify_chain() -> tuple[bool, Optional[int]]:
+def verify_chain() -> tuple[bool, int | None]:
     """Walk the chain, return (ok, first_bad_index or None)."""
     prev = _GENESIS
     for i, ev in enumerate(CHAIN):

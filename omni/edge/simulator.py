@@ -13,9 +13,8 @@ import base64
 import logging
 import random
 import struct
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
-from uuid import uuid4
 
 import numpy as np
 
@@ -81,7 +80,7 @@ async def run_sensor(
             frame = AcousticFrame(
                 sensor_id=sensor_id,
                 site_id=site_id,
-                captured_at=datetime.now(timezone.utc),
+                captured_at=datetime.now(UTC),
                 pcm_b64=_pcm_to_b64(pcm),
                 edge_snr_db=random.uniform(6, 22) if regime != "quiet" else random.uniform(-3, 6),
                 edge_vad_confidence=0.9 if regime != "quiet" else 0.1,
@@ -95,7 +94,7 @@ async def run_sensor(
                     Topics.TELEMETRY,
                     TelemetrySample(
                         sensor_id=sensor_id,
-                        captured_at=datetime.now(timezone.utc),
+                        captured_at=datetime.now(UTC),
                         battery_pct=battery,
                         temperature_c=random.uniform(24, 38),
                         disk_free_mb=random.uniform(2000, 4000),

@@ -409,7 +409,7 @@ def process_hard_negatives(
         step_samples = WINDOW_SAMPLES
         windows = extract_windows(audio, step_samples)
 
-        for win_idx, window in enumerate(windows):
+        for _win_idx, window in enumerate(windows):
             window = peak_normalise(window)
 
             for aug_tag, aug_audio in [
@@ -510,7 +510,7 @@ def main():
         print(f"  Seismic noise files: {len(seismic_files)}")
 
     # ── Process source recordings ──
-    print(f"\n[1/2] Augmenting source recordings...")
+    print("\n[1/2] Augmenting source recordings...")
     all_rows: list[dict] = []
 
     for i, wav_path in enumerate(source_wavs, 1):
@@ -554,7 +554,7 @@ def main():
     print(f"\n{'=' * 60}")
     print(f"Done! {len(all_rows)} clips → {output_dir}")
     print(f"Metadata: {metadata_path}")
-    print(f"\nLabel distribution:")
+    print("\nLabel distribution:")
     for lbl, cnt in sorted(label_counts.items()):
         print(f"  {lbl:<25} {cnt:>5}")
     print(f"{'=' * 60}")

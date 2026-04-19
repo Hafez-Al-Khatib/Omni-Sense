@@ -12,16 +12,15 @@ so ops can tune them without touching code.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
+from omni.common import store
 from omni.common.bus import Topics, get_bus
 from omni.common.schemas import (
     Alert,
-    AlertState,
     LeakHypothesis,
     Severity,
 )
-from omni.common import store
 
 log = logging.getLogger("alerts")
 
@@ -72,7 +71,7 @@ def _score(h: LeakHypothesis) -> tuple[Severity, float]:
 async def on_hypothesis(payload: dict) -> None:
     h = LeakHypothesis(**payload)
     sev, s = _score(h)
-    sla = datetime.now(timezone.utc) + timedelta(minutes=SLA_MINUTES[sev])
+    sla = datetime.now(UTC) + timedelta(minutes=SLA_MINUTES[sev])
     alert = Alert(
         hypothesis_id=h.hypothesis_id,
         severity=sev,
@@ -90,7 +89,7 @@ async def on_hypothesis(payload: dict) -> None:
         sla_due_at=sla,
     )
     alert.history.append({
-        "at": datetime.now(timezone.utc).isoformat(),
+        "at": datetime.now(UTC).isoformat(),
         "note": f"created severity={sev.value} score={s:.1f}",
     })
     await store.alerts().put(alert)

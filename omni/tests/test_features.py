@@ -5,17 +5,14 @@ import numpy as np
 import pytest
 
 from omni.eep.features import (
-    extract_features,
-    extract_features_with_meta,
     _FEATURE_DIM,
+    _compute_mfccs,
     _frames,
     _rfft_mag,
-    _spectral_centroid,
-    _spectral_rolloff,
     _spectral_flatness,
-    _compute_mfccs,
+    extract_features,
+    extract_features_with_meta,
 )
-
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 

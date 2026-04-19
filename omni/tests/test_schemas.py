@@ -1,19 +1,15 @@
 """Schema round-trip and validation tests."""
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
 
 from omni.common.schemas import (
     AcousticFrame,
-    Alert,
     AlertState,
-    AuditEvent,
     DetectionResult,
     LeakHypothesis,
-    Severity,
-    TelemetrySample,
     WorkOrder,
     WorkOrderStatus,
 )
@@ -23,7 +19,7 @@ def test_acoustic_frame_roundtrip():
     frame = AcousticFrame(
         sensor_id="S-TEST-001",
         site_id="beirut/test",
-        captured_at=datetime.now(timezone.utc),
+        captured_at=datetime.now(UTC),
         pcm_b64="AAAA",
         edge_snr_db=12.5,
         edge_vad_confidence=0.85,
@@ -39,7 +35,7 @@ def test_detection_result_bounds():
         frame_id=uuid4(),
         sensor_id="S-TEST-001",
         site_id="beirut/test",
-        captured_at=datetime.now(timezone.utc),
+        captured_at=datetime.now(UTC),
         xgb_p_leak=0.92,
         rf_p_leak=0.88,
         if_anomaly_score=0.3,
@@ -59,7 +55,7 @@ def test_detection_result_rejects_bad_probability():
             frame_id=uuid4(),
             sensor_id="S",
             site_id="s",
-            captured_at=datetime.now(timezone.utc),
+            captured_at=datetime.now(UTC),
             xgb_p_leak=1.5,   # invalid — must be ≤ 1
             rf_p_leak=0.0,
             if_anomaly_score=0.0,

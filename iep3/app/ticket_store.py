@@ -13,7 +13,7 @@ input consumed by scripts/train_models.py when retraining is triggered.
 import csv
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 TICKETS_DIR = Path("tickets")
@@ -28,7 +28,7 @@ _FEEDBACK_FIELDS = [
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _ticket_path(ticket_id: str) -> Path:

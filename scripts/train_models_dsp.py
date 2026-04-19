@@ -29,6 +29,7 @@ import mlflow.sklearn
 import mlflow.xgboost
 import numpy as np
 import pandas as pd
+import xgboost as xgb
 from sklearn.ensemble import IsolationForest
 from sklearn.metrics import (
     accuracy_score,
@@ -40,7 +41,6 @@ from sklearn.metrics import (
 )
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
-import xgboost as xgb
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -78,13 +78,13 @@ def prepare_features(
     # Select only the feature columns that exist (handles any N_FEATURES)
     feature_cols = [c for c in EMBEDDING_COLS if c in df.columns]
     embeddings = df[feature_cols].values.astype(np.float32)
-    
+
     # --- DIAGNOSTIC PROFILER: Detect YAMNet Feature Collapse ---
     # If the variance across the dataset is near zero, the model cannot learn.
     variances = np.var(embeddings, axis=0)
     mean_var = float(np.mean(variances))
     print(f"  Embedding Mean Variance: {mean_var:.6f}")
-    
+
     if mean_var < 1e-3:
         print("\n" + "!" * 70)
         print("[CRITICAL WARNING] Feature Variance Collapse Detected!")
@@ -188,7 +188,7 @@ def train_xgboost(
     objective = "multi:softprob" if is_multiclass else "binary:logistic"
     eval_metric = "mlogloss" if is_multiclass else "logloss"
 
-    print(f"\n  Training XGBoost classifier...")
+    print("\n  Training XGBoost classifier...")
     print(f"  Mode: {'multi-class' if is_multiclass else 'binary'} ({n_classes} classes)")
     print(f"  Training: {X_train.shape[0]} samples | Validation: {X_val.shape[0]} samples")
     print(f"  Feature dim: {X_train.shape[1]}")
@@ -246,12 +246,12 @@ def evaluate_xgboost(
         "roc_auc":   roc_auc,
     }
 
-    print(f"\n  XGBoost Test Results:")
+    print("\n  XGBoost Test Results:")
     print(f"  {'─' * 40}")
     for k, v in metrics.items():
         print(f"    {k:>12}: {v:.4f}")
 
-    print(f"\n  Classification Report:")
+    print("\n  Classification Report:")
     print(classification_report(
         y_test, y_pred,
         target_names=list(label_encoder.classes_),
@@ -266,13 +266,13 @@ def export_xgboost_onnx(
     n_features: int = 41,
 ):
     """Export XGBoost model to ONNX format."""
+    from onnxmltools.convert.xgboost.operator_converters.XGBoost import (
+        convert_xgboost,
+    )
     from skl2onnx import convert_sklearn, update_registered_converter
     from skl2onnx.common.data_types import FloatTensorType
     from skl2onnx.common.shape_calculator import (
         calculate_linear_classifier_output_shapes,
-    )
-    from onnxmltools.convert.xgboost.operator_converters.XGBoost import (
-        convert_xgboost,
     )
 
     update_registered_converter(
@@ -361,7 +361,7 @@ def main():
     n_feat = embeddings_only.shape[1]
     print(f"  Feature matrix: {X.shape} ({n_feat} DSP features + 2 metadata)")
     unique, counts = np.unique(y, return_counts=True)
-    for cls_idx, cnt in zip(unique, counts):
+    for cls_idx, cnt in zip(unique, counts, strict=False):
         print(f"    class {cls_idx} ({label_encoder.classes_[cls_idx]}): {cnt} samples")
 
     # ── Train/test split ──
@@ -455,7 +455,7 @@ def main():
         mlflow.log_artifact(str(metrics_path))
 
     print(f"\n{'=' * 60}")
-    print(f"Training complete!")
+    print("Training complete!")
     print(f"  Models: {output_dir}")
     print(f"  MLflow: {args.mlflow_tracking_uri}")
     print(f"  F1 Score: {metrics['f1']:.4f}")

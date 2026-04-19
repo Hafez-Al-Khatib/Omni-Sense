@@ -14,18 +14,18 @@ from pathlib import Path
 import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
-from prometheus_client import Histogram, Gauge, Counter
+from prometheus_client import Counter, Gauge, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.ood_detector import OODDetector
-from app.classifier import LeakClassifier
 from app.calibration import CalibrationManager
+from app.classifier import LeakClassifier
 from app.drift_monitor import drift_monitor
+from app.ood_detector import OODDetector
 from app.schemas import (
-    DiagnoseRequest,
-    DiagnoseResponse,
     CalibrateRequest,
     CalibrateResponse,
+    DiagnoseRequest,
+    DiagnoseResponse,
     HealthResponse,
 )
 

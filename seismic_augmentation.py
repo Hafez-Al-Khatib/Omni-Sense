@@ -1,9 +1,8 @@
-from _pytest.capture import CaptureIO
-import numpy as np 
-import librosa 
-from scipy.signal import butter, lfilter
+import librosa
+import numpy as np
 from scipy.io import wavfile
-from pathlib import Path
+from scipy.signal import butter, lfilter
+
 
 def butter_lowpass(cutoff, fs, order=5):
     """A Butterworth low-pass filter."""
@@ -26,13 +25,13 @@ def mix_with_snr(clean_signal, noise_signal, snr_db):
     min_len = min(len(clean_signal), len(noise_signal))
     clean = clean_signal[:min_len]
     noise = noise_signal[:min_len]
-    
+
     power_clean = np.var(clean)
     power_noise = np.var(noise)
 
     if power_noise == 0:
         return clean
-    
+
     target_noise_power = power_clean / (10 ** (snr_db / 10))
     noise_multiplier = np.sqrt(target_noise_power / power_noise)
 
@@ -41,7 +40,7 @@ def mix_with_snr(clean_signal, noise_signal, snr_db):
 
     if max_val > 1.0:
         mixed_signal = mixed_signal / max_val
-    
+
     return mixed_signal
 
 if __name__ == '__main__':

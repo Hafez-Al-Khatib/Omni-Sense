@@ -44,10 +44,12 @@ redis:7.2-alpine in docker-compose satisfies both.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -81,11 +83,11 @@ except ImportError:
 
 # ─── Serialisation ────────────────────────────────────────────────────────────
 
-def _to_json(payload: "BaseModel | dict | Any") -> str:
+def _to_json(payload: BaseModel | dict | Any) -> str:
     if isinstance(payload, BaseModel):
         return payload.model_dump_json()
-    from uuid import UUID
     from datetime import datetime
+    from uuid import UUID
 
     def _default(obj):
         if isinstance(obj, (UUID,)):
@@ -97,7 +99,7 @@ def _to_json(payload: "BaseModel | dict | Any") -> str:
     return json.dumps(payload, default=_default)
 
 
-def _from_json(raw: "bytes | str") -> dict:
+def _from_json(raw: bytes | str) -> dict:
     if isinstance(raw, bytes):
         raw = raw.decode("utf-8", errors="replace")
     return json.loads(raw)
@@ -115,12 +117,12 @@ class RedisBus:
         self._url = redis_url
         self._subscribers: dict[str, list[Handler]] = {}
         self._running = False
-        self._client: "aioredis.Redis | None" = None
+        self._client: aioredis.Redis | None = None
         self._consumer_tasks: list[asyncio.Task] = []
 
     # ── publish ───────────────────────────────────────────────────────────────
 
-    async def publish(self, topic: str, payload: "BaseModel | dict") -> None:
+    async def publish(self, topic: str, payload: BaseModel | dict) -> None:
         """XADD topic * payload <json>."""
         client = await self._get_client()
         raw = _to_json(payload)
@@ -273,7 +275,7 @@ class RedisBus:
 
     # ── internal ──────────────────────────────────────────────────────────────
 
-    async def _get_client(self) -> "aioredis.Redis":
+    async def _get_client(self) -> aioredis.Redis:
         if self._client is None:
             self._client = aioredis.from_url(
                 self._url,
@@ -285,26 +287,23 @@ class RedisBus:
     async def aclose(self) -> None:
         self.stop()
         if self._client:
-            try:
+            with contextlib.suppress(Exception):
                 await self._client.aclose()
-            except Exception:
-                pass
             self._client = None
 
 
 # ─── Factory ──────────────────────────────────────────────────────────────────
 
-_bus_singleton: "RedisBus | Any | None" = None
+_bus_singleton: RedisBus | Any | None = None
 
 
-def get_bus(force_redis: bool = False) -> "RedisBus | Any":
+def get_bus(force_redis: bool = False) -> RedisBus | Any:
     """Return the application-wide bus singleton (RedisBus or InMemoryBus)."""
     global _bus_singleton
     if _bus_singleton is not None:
         return _bus_singleton
 
     env_url = os.environ.get("REDIS_URL", "")
-    use_redis = _REDIS_AVAILABLE and (env_url or force_redis)
 
     if not _REDIS_AVAILABLE:
         log.warning("redis package not installed → InMemoryBus fallback")

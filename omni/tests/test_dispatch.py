@@ -1,13 +1,13 @@
 """Dispatch: crew selection, work order creation, FSM integration."""
 import asyncio
-from datetime import datetime, timezone
+import contextlib
 from uuid import uuid4
 
 import pytest
 
-from omni.dispatch.router import _choose_crew, CREWS
-from omni.common.schemas import Alert, AlertState, Severity
 from omni.common import store as global_store
+from omni.common.schemas import Alert, Severity
+from omni.dispatch.router import _choose_crew
 
 
 def _alert(sev=Severity.HIGH, lat=33.8978, lon=35.4828):
@@ -53,9 +53,9 @@ def test_choose_crew_eta_is_positive():
 @pytest.mark.asyncio
 async def test_dispatch_creates_work_order():
     """End-to-end: alert → dispatch → work order persisted."""
-    from omni.dispatch.router import on_alert_new
-    from omni.common.bus import InMemoryBus, Topics
     import omni.common.bus as bus_mod
+    from omni.common.bus import InMemoryBus
+    from omni.dispatch.router import on_alert_new
 
     # Wire fresh bus + stores
     old_bus = bus_mod._bus
@@ -72,10 +72,8 @@ async def test_dispatch_creates_work_order():
     await asyncio.sleep(0.1)
     bus.stop()
     bus_task.cancel()
-    try:
+    with contextlib.suppress(asyncio.CancelledError):
         await bus_task
-    except asyncio.CancelledError:
-        pass
 
     wos = await global_store.work_orders().list_all()
     assert any(str(w.alert_id) == str(alert.alert_id) for w in wos)

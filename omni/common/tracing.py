@@ -45,13 +45,13 @@ def configure_tracing(service_name: str) -> None:
 
     try:
         from opentelemetry import trace
-        from opentelemetry.sdk.resources import Resource, SERVICE_NAME
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
         from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
         from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+        from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry.sdk.trace.sampling import TraceIdRatioBased
 
         endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://jaeger:4317")
         sample_rate = float(os.getenv("OTEL_TRACES_SAMPLER_ARG", "1.0"))

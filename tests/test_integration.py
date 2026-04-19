@@ -9,9 +9,9 @@ import io
 import json
 import os
 
+import httpx
 import numpy as np
 import pytest
-import httpx
 import soundfile as sf
 
 EEP_URL = os.environ.get("EEP_URL", "http://localhost:8000")

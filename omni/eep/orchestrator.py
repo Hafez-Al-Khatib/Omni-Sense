@@ -46,14 +46,13 @@ import logging
 import os
 import time
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 
 from omni.common.bus import Topics, get_bus
 from omni.common.schemas import AcousticFrame, DetectionResult, ScadaReading
 from omni.common.tracing import get_tracer
-from omni.eep.features import extract_features_with_meta, _FEATURE_DIM
+from omni.eep.features import extract_features_with_meta
 from omni.spatial.fusion import cache_pcm as _cache_pcm
 
 log = logging.getLogger("eep")
@@ -269,21 +268,21 @@ def _stub_ood(pcm: np.ndarray, sr: int) -> float:
 
 # ─── Async head wrappers ──────────────────────────────────────────────────────
 
-async def head_xgb(pcm: np.ndarray, sr: int, feat: Optional[np.ndarray] = None) -> float:
+async def head_xgb(pcm: np.ndarray, sr: int, feat: np.ndarray | None = None) -> float:
     await asyncio.sleep(0.001)
     if _xgb_session is not None and feat is not None:
         return _onnx_predict(_xgb_session, feat)
     return _stub_xgb(pcm, sr)
 
 
-async def head_rf(pcm: np.ndarray, sr: int, feat: Optional[np.ndarray] = None) -> float:
+async def head_rf(pcm: np.ndarray, sr: int, feat: np.ndarray | None = None) -> float:
     await asyncio.sleep(0.001)
     if _rf_session is not None and feat is not None:
         return _onnx_predict(_rf_session, feat)
     return _stub_rf(pcm, sr)
 
 
-async def head_cnn(pcm: np.ndarray, sr: int, feat: Optional[np.ndarray] = None) -> float:
+async def head_cnn(pcm: np.ndarray, sr: int, feat: np.ndarray | None = None) -> float:
     """CNN head — calls IEP4 /classify_raw over HTTP.
 
     Falls back to the physics stub on:
@@ -329,13 +328,13 @@ async def head_cnn(pcm: np.ndarray, sr: int, feat: Optional[np.ndarray] = None) 
 
 
 async def head_isolation_forest(
-    pcm: np.ndarray, sr: int, feat: Optional[np.ndarray] = None
+    pcm: np.ndarray, sr: int, feat: np.ndarray | None = None
 ) -> float:
     await asyncio.sleep(0.005)
     return _stub_isolation_forest(pcm, sr)
 
 
-async def head_ood(pcm: np.ndarray, sr: int, feat: Optional[np.ndarray] = None) -> float:
+async def head_ood(pcm: np.ndarray, sr: int, feat: np.ndarray | None = None) -> float:
     await asyncio.sleep(0.008)
     return _stub_ood(pcm, sr)
 
@@ -344,13 +343,13 @@ async def head_ood(pcm: np.ndarray, sr: int, feat: Optional[np.ndarray] = None) 
 
 async def _with_budget(
     name: str,
-    coro: "asyncio.Coroutine[None, None, float]",
+    coro: asyncio.Coroutine[None, None, float],
     fallback: float,
 ) -> tuple[float, float]:
     t0 = time.perf_counter()
     try:
         v = await asyncio.wait_for(coro, timeout=HEAD_BUDGET_MS[name] / 1000)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.warning("head=%s timed out, using fallback=%.3f", name, fallback)
         v = fallback
     return v, (time.perf_counter() - t0) * 1000
@@ -385,7 +384,7 @@ async def handle_frame(payload: dict) -> None:
         pipe_material = "PVC"
 
         # Extract DSP features once — shared across all heads
-        feat: Optional[np.ndarray] = None
+        feat: np.ndarray | None = None
         if _xgb_session is not None or _rf_session is not None:
             try:
                 feat = extract_features_with_meta(
@@ -453,7 +452,7 @@ async def handle_frame(payload: dict) -> None:
             ] + [f"mfcc{i//2}_{'mean' if i%2==0 else 'std'}" for i in range(26)] \
               + ["pipe_material_enc", "pressure_bar"]
             # feat may be 39-d (no meta) or 41-d — zip safely
-            feat_dict = dict(zip(feat_names, feat.tolist()))
+            feat_dict = dict(zip(feat_names, feat.tolist(), strict=False))
             top = sorted(feat_dict.items(), key=lambda kv: -abs(kv[1]))[:3]
         else:
             band_feats = {

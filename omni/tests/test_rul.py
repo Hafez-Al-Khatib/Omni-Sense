@@ -1,13 +1,15 @@
 """RUL model: Weibull AFT fitting, prediction ordering, quantiles."""
 import math
+
 import pytest
+
+import omni.cmms.rul_model as rul_mod
 from omni.cmms.rul_model import (
-    WeibullAFT,
     PipeObservation,
+    WeibullAFT,
     generate_synthetic_corpus,
     predict_rul,
 )
-import omni.cmms.rul_model as rul_mod
 
 
 @pytest.fixture(autouse=True)

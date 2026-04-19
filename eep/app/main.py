@@ -10,13 +10,13 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
-
-from app.config import settings
-from app.routes.diagnose import router as diagnose_router
-from app.routes.calibrate import router as calibrate_router
-from app.middleware.rate_limiter import limiter
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+
+from app.config import settings
+from app.middleware.rate_limiter import limiter
+from app.routes.calibrate import router as calibrate_router
+from app.routes.diagnose import router as diagnose_router
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(

@@ -22,18 +22,18 @@ import logging
 import os
 import sys
 import threading
-import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from uuid import UUID
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
 
+from omni.alerts import engine
+from omni.audit import log as audit_log
+from omni.cmms import service as cmms_service
 from omni.common import store
 from omni.common.bus import Topics, get_bus
 from omni.common.schemas import (
@@ -44,9 +44,6 @@ from omni.common.schemas import (
     WorkOrder,
 )
 from omni.common.store import SensorTwin
-from omni.alerts import engine
-from omni.audit import log as audit_log
-from omni.cmms import service as cmms_service
 from omni.dispatch import router
 from omni.edge.simulator import run_sensor
 from omni.eep import orchestrator
@@ -269,7 +266,7 @@ async def _heartbeat_loop() -> None:
                      if a.state.value in ("NEW","ACKNOWLEDGED","DISPATCHED","ON_SITE"))
         msg = {
             "type":          "heartbeat",
-            "ts":            datetime.now(timezone.utc).isoformat(),
+            "ts":            datetime.now(UTC).isoformat(),
             "ws_clients":    hub.count,
             "audit_ok":      ok,
             "audit_events":  len(audit_log.CHAIN),
@@ -443,7 +440,7 @@ async def api_metrics():
         "audit_broken_at":  str(bad) if bad else None,
         "notifications_sent": len(notify_service.INBOX),
         "ws_clients":       hub.count,
-        "ts":               datetime.now(timezone.utc).isoformat(),
+        "ts":               datetime.now(UTC).isoformat(),
     })
 
 
@@ -484,7 +481,7 @@ async def ws_endpoint(websocket: WebSocket):
                 # Handle client-sent ping
                 if data == "ping":
                     await websocket.send_text(json.dumps({"type": "pong"}))
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 # Send server-side ping
                 try:
                     await websocket.send_text(json.dumps({"type": "ping"}))
@@ -555,7 +552,7 @@ async def _send_initial_snapshot(ws: WebSocket) -> None:
     ok, _ = audit_log.verify_chain()
     await ws.send_text(json.dumps({
         "type":         "heartbeat",
-        "ts":           datetime.now(timezone.utc).isoformat(),
+        "ts":           datetime.now(UTC).isoformat(),
         "audit_ok":     ok,
         "audit_events": len(audit_log.CHAIN),
         "ws_clients":   hub.count,

@@ -31,17 +31,17 @@ Graceful degradation:
   Both degrade independently; IEP2 result is always available from EEP.
 """
 
+import contextlib
 import logging
 from pathlib import Path
-from typing import Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from app.audio import preprocess_audio
 from app.model import cnn_classifier
 from app.schemas import CNNResponse, HealthResponse
-from app.audio import preprocess_audio
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("iep4")
@@ -100,7 +100,6 @@ def _get_autoencoder():
         return _autoencoder
 
     # Model lives in iep2/models/ (shared between IEP2 and IEP4)
-    from pathlib import Path
     onnx_p = Path("../iep2/models/autoencoder_ood.onnx")
     pt_p   = Path("../iep2/models/autoencoder_ood.pt")
     thr_p  = Path("../iep2/models/autoencoder_threshold.npy")
@@ -121,7 +120,7 @@ def _get_autoencoder():
         return None
 
     try:
-        import sys, os
+        import sys
         # Ensure iep2/app is importable
         proj_root = str(Path(__file__).parent.parent.parent)
         if proj_root not in sys.path:
@@ -200,6 +199,7 @@ async def classify_raw(body: dict):
 
     try:
         import base64 as _b64
+
         import numpy as _np
         pcm_bytes = _b64.b64decode(body["pcm_b64"])
         pcm = _np.frombuffer(pcm_bytes, dtype=_np.float32).copy()
@@ -223,10 +223,8 @@ async def classify_raw(body: dict):
     is_ood = False
     ae = _get_autoencoder()
     if ae is not None and ae.is_loaded:
-        try:
+        with contextlib.suppress(Exception):
             is_ood, _ = ae.is_anomalous_wav(pcm)
-        except Exception:
-            pass
 
     # CNN classification
     try:
@@ -286,9 +284,9 @@ async def classify(audio: UploadFile = File(...)):
         raise HTTPException(status_code=422, detail=f"Audio decode failed: {exc}")
 
     # ── Stage 1: Autoencoder OOD check ───────────────────────────────────
-    recon_error: Optional[float] = None
+    recon_error: float | None = None
     is_ood: bool                 = False
-    ood_threshold: Optional[float] = None
+    ood_threshold: float | None = None
 
     ae = _get_autoencoder()
     if ae is not None and ae.is_loaded:

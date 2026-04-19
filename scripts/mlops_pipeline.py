@@ -32,17 +32,16 @@ import mlflow.sklearn
 import mlflow.xgboost
 import numpy as np
 import pandas as pd
+import xgboost as xgb
 from sklearn.ensemble import IsolationForest
 from sklearn.metrics import (
     accuracy_score,
-    classification_report,
     f1_score,
     precision_score,
     recall_score,
     roc_auc_score,
 )
 from sklearn.model_selection import train_test_split
-import xgboost as xgb
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
@@ -168,9 +167,9 @@ def promote_model(iforest, xgb_model, metrics, output_dir, n_emb: int = 100, n_f
             f.write(onnx_model.SerializeToString())
 
         # XGBoost ONNX — trained on full feature vector (n_features dims)
-        from skl2onnx.common.shape_calculator import calculate_linear_classifier_output_shapes
         from onnxmltools.convert.xgboost.operator_converters.XGBoost import convert_xgboost
         from skl2onnx import update_registered_converter
+        from skl2onnx.common.shape_calculator import calculate_linear_classifier_output_shapes
 
         update_registered_converter(
             xgb.XGBClassifier, "XGBoostXGBClassifier",

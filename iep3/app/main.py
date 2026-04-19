@@ -33,14 +33,14 @@ from fastapi import FastAPI, HTTPException, Query
 from prometheus_client import Counter, Gauge
 from prometheus_fastapi_instrumentator import Instrumentator
 
+from app import ticket_store
 from app.schemas import (
-    TicketCreateRequest,
-    TicketResponse,
     FeedbackRequest,
     FeedbackResponse,
     HealthResponse,
+    TicketCreateRequest,
+    TicketResponse,
 )
-from app import ticket_store
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("iep3")

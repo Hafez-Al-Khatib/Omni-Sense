@@ -8,15 +8,13 @@ from __future__ import annotations
 
 import logging
 import random
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Optional
-from uuid import UUID
+from dataclasses import dataclass
+from datetime import UTC, datetime
 
-from omni.common.bus import Topics, get_bus
-from omni.common.schemas import AlertState, WorkOrder, WorkOrderStatus
-from omni.common import store
 from omni.cmms.rul_model import RULPrediction, predict_rul
+from omni.common import store
+from omni.common.bus import Topics, get_bus
+from omni.common.schemas import AlertState, WorkOrder
 
 log = logging.getLogger("cmms")
 
@@ -32,8 +30,8 @@ class PipeSegment:
     topology: str = "Looped"       # "Looped" | "Branched"
     pressure_bar: float = 4.5
     repair_count: int = 0
-    last_repair: Optional[datetime] = None
-    last_rul: Optional[RULPrediction] = None
+    last_repair: datetime | None = None
+    last_rul: RULPrediction | None = None
     leak_detections_30d: int = 0
 
 
@@ -61,7 +59,7 @@ _LATEST_RULS: list[RULPrediction] = []
 
 def _refresh_rul(seg: PipeSegment, extra_detections: int = 0) -> RULPrediction:
     """Re-run the RUL model for a pipe segment and cache the result."""
-    age = datetime.now(timezone.utc).year - seg.install_year
+    age = datetime.now(UTC).year - seg.install_year
     detections = max(0, seg.leak_detections_30d + extra_detections)
     rul = predict_rul(
         segment_id=seg.segment_id,
@@ -117,7 +115,7 @@ async def on_work_order(payload: dict) -> None:
     if pipe_id and pipe_id in _PIPE_REGISTRY:
         seg = _PIPE_REGISTRY[pipe_id]
         seg.repair_count += 1
-        seg.last_repair = datetime.now(timezone.utc)
+        seg.last_repair = datetime.now(UTC)
         rul = _refresh_rul(seg)
         completed.mtbf_days = rul.rul_days
         await store.work_orders().put(completed)

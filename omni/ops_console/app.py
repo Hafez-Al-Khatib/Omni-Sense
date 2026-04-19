@@ -12,17 +12,16 @@ import asyncio
 import logging
 import threading
 import time
-from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
 
-from omni.common import store
-from omni.common.bus import get_bus
-from omni.common.store import SensorTwin
 from omni.alerts import engine
 from omni.audit import log as audit_log
 from omni.cmms import service as cmms_service
+from omni.common import store
+from omni.common.bus import get_bus
+from omni.common.store import SensorTwin
 from omni.dispatch import router
 from omni.edge.simulator import run_sensor
 from omni.eep import orchestrator

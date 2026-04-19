@@ -10,8 +10,7 @@ import asyncio
 import logging
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Iterable, Optional
+from datetime import UTC, datetime
 from uuid import UUID
 
 from .schemas import (
@@ -32,7 +31,7 @@ class SensorTwin:
     site_id: str
     lat: float
     lon: float
-    last_seen: Optional[datetime] = None
+    last_seen: datetime | None = None
     battery_pct: float = 100.0
     temperature_c: float = 25.0
     firmware_version: str = "unknown"
@@ -63,7 +62,7 @@ class DigitalTwinStore:
                 sensor_id,
                 SensorTwin(sensor_id=sensor_id, site_id="unknown", lat=0.0, lon=0.0),
             )
-            t.last_seen = datetime.now(timezone.utc)
+            t.last_seen = datetime.now(UTC)
             t.battery_pct = battery
             t.temperature_c = temp
             t.firmware_version = fw
@@ -80,7 +79,7 @@ class DigitalTwinStore:
             return list(self.detection_window[sensor_id])[-n:]
 
     async def all_recent_leaks(self, min_p: float = 0.7, horizon_s: float = 30.0) -> list[DetectionResult]:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         out = []
         async with self._lock:
             for dq in self.detection_window.values():
@@ -99,7 +98,7 @@ class AlertStore:
         async with self._lock:
             self.by_id[alert.alert_id] = alert
 
-    async def get(self, alert_id: UUID) -> Optional[Alert]:
+    async def get(self, alert_id: UUID) -> Alert | None:
         async with self._lock:
             return self.by_id.get(alert_id)
 
@@ -110,12 +109,12 @@ class AlertStore:
                 {
                     "from": alert.state.value,
                     "to": new_state.value,
-                    "at": datetime.now(timezone.utc).isoformat(),
+                    "at": datetime.now(UTC).isoformat(),
                     "note": note,
                 }
             )
             alert.state = new_state
-            alert.updated_at = datetime.now(timezone.utc)
+            alert.updated_at = datetime.now(UTC)
             return alert
 
     async def list_all(self) -> list[Alert]:
@@ -136,7 +135,7 @@ class WorkOrderStore:
         async with self._lock:
             wo = self.by_id[wo_id]
             wo.status = WorkOrderStatus.COMPLETED
-            wo.completed_at = datetime.now(timezone.utc)
+            wo.completed_at = datetime.now(UTC)
             wo.repair_cost_usd = cost
             wo.notes = notes
             return wo

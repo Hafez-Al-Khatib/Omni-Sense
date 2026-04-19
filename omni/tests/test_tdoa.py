@@ -10,8 +10,6 @@ Covers:
 """
 from __future__ import annotations
 
-import math
-
 import numpy as np
 import pytest
 
@@ -297,7 +295,7 @@ class TestLocalize:
             pipe_length_m=80.0, pipe_material="PVC",
             lat_a=0.0, lon_a=0.0, lat_b=0.001, lon_b=0.001,
         )
-        v_pvc = wave_speed("PVC")   # 400 m/s
+        wave_speed("PVC")   # 400 m/s
         x_true = 20.0               # 20 m from A on 80 m pipe
         pcm_a, pcm_b = _synthetic_frames(x_true, seg=seg_pvc)
         res = localize(pcm_a, pcm_b, sr=SR, segment=seg_pvc)

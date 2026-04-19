@@ -219,7 +219,6 @@ def _build_cnn(n_classes: int = 2, n_mels: int = FREQ_BINS):
     """
     Build the CNN model.  Imported lazily so torch is not required at startup.
     """
-    import torch
     import torch.nn as nn
 
     class ConvBlock(nn.Module):

@@ -7,8 +7,7 @@ import io
 import numpy as np
 import pytest
 import soundfile as sf
-
-from app.audio_processor import preprocess_audio, TARGET_SR, TARGET_SAMPLES
+from app.audio_processor import TARGET_SAMPLES, preprocess_audio
 
 
 class TestAudioPreprocessor:
