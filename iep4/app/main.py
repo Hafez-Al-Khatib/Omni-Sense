@@ -259,6 +259,14 @@ async def classify(audio: UploadFile = File(...)):
     Returns HTTP 503 if the CNN model has not been trained yet.
     The autoencoder OOD check is best-effort: if it is not trained, is_ood=False.
     """
+    audio_bytes = await audio.read()
+    if len(audio_bytes) == 0:
+        CNN_REQUESTS.labels(status="error").inc()
+        raise HTTPException(status_code=400, detail="Empty audio file")
+    if len(audio_bytes) > 5 * 1024 * 1024:
+        CNN_REQUESTS.labels(status="error").inc()
+        raise HTTPException(status_code=413, detail="Audio too large (max 5 MB)")
+
     if not cnn_classifier.is_loaded:
         raise HTTPException(
             status_code=503,
@@ -268,14 +276,6 @@ async def classify(audio: UploadFile = File(...)):
                 "IEP2 (XGBoost + RF) is still operational."
             ),
         )
-
-    audio_bytes = await audio.read()
-    if len(audio_bytes) == 0:
-        CNN_REQUESTS.labels(status="error").inc()
-        raise HTTPException(status_code=400, detail="Empty audio file")
-    if len(audio_bytes) > 5 * 1024 * 1024:
-        CNN_REQUESTS.labels(status="error").inc()
-        raise HTTPException(status_code=413, detail="Audio too large (max 5 MB)")
 
     try:
         waveform = preprocess_audio(audio_bytes)
