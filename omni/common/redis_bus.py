@@ -241,7 +241,7 @@ class RedisBus:
         fields: dict,
         client,
     ) -> None:
-        """Parse message, fan-out to handlers, then ACK."""
+        """Parse message, fan-out to handlers, then ACK only on total success."""
         raw = fields.get(b"payload") or fields.get("payload", b"{}")
         try:
             payload = _from_json(raw)
@@ -251,24 +251,40 @@ class RedisBus:
             return
 
         handlers = list(self._subscribers.get(topic, ()))
-        if handlers:
-            await asyncio.gather(
-                *(self._safe_call(topic, h, payload) for h in handlers),
-                return_exceptions=False,
-            )
+        if not handlers:
+            # No one interested? ACK it so it doesn't clog the PEL
+            await client.xack(topic, group, msg_id)
+            return
 
-        # ACK after all handlers succeed — guarantees at-least-once delivery
+        # Execute all handlers. We use return_exceptions=True so we can check
+        # if any of them failed.
+        results = await asyncio.gather(
+            *(self._safe_call(topic, h, payload) for h in handlers),
+            return_exceptions=True,
+        )
+
+        # Check for failures. Note: _safe_call already logs the exception,
+        # but we need to know if it happened to decide whether to ACK.
+        if any(isinstance(r, Exception) or r is False for r in results):
+            log.warning("One or more handlers failed for topic=%s id=%s — NOT ACKing for retry",
+                        topic, msg_id)
+            return
+
+        # ACK only after ALL handlers succeed — guarantees at-least-once delivery
         try:
             await client.xack(topic, group, msg_id)
         except Exception as exc:
             log.warning("XACK failed topic=%s id=%s: %s", topic, msg_id, exc)
 
-    async def _safe_call(self, topic: str, handler: Handler, payload: dict) -> None:
+    async def _safe_call(self, topic: str, handler: Handler, payload: dict) -> bool:
+        """Execute one handler. Returns True on success, False/Exception on failure."""
         try:
             await handler(payload)
+            return True
         except Exception:
             log.exception("handler failed topic=%s handler=%s",
                           topic, getattr(handler, "__name__", repr(handler)))
+            return False
 
     def stop(self) -> None:
         self._running = False

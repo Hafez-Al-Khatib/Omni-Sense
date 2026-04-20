@@ -1,87 +1,85 @@
 # 🔊 Omni-Sense
 
-> **Out-of-Distribution Aware Acoustic Diagnostics Platform**
+> **Hybrid OOD-Aware Acoustic Diagnostics Platform**
 > for Urban Infrastructure (Water Leakage & Generator Diagnostics)
 
 [![CI](https://github.com/<org>/omni-sense/actions/workflows/ci.yml/badge.svg)](https://github.com/<org>/omni-sense/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-## Problem
+## Overview
 
-Lebanon's infrastructure suffers from **40–50% water loss** in municipal networks and frequent diesel generator failures. Traditional acoustic diagnostic hardware is prohibitively expensive and fails in noisy urban environments.
+Omni-Sense is a **cloud-native, multi-modal** acoustic diagnostic platform designed for high-reliability monitoring of water infrastructure and industrial machinery. It employs a hybrid ensemble of physics-based DSP features and deep learning spectrogram models, protected by advanced Out-of-Distribution (OOD) detection.
 
-## Solution
+## Architecture v2.0
 
-Omni-Sense is a **cloud-native, microservices-based** acoustic diagnostic platform that:
+The platform has transitioned from a simple microservices model to a **durable, stream-aligned architecture** capable of handling edge ingestion via secure MQTT and providing high-integrity diagnostics.
 
-1. **Extracts features** from cheap surface microphones using **YAMNet** (transfer learning)
-2. **Detects Out-of-Distribution** environments via **Isolation Forest** (epistemic safety)
-3. **Classifies infrastructure health** using **XGBoost** with calibrated probabilities
-4. **Monitors itself** via Prometheus + Grafana with ML-specific drift signals
-
-## Architecture
-
+```mermaid
+graph TD
+    Edge[Edge Sensors/Apps] -- mTLS MQTT --> MQTT[Mosquitto Broker]
+    MQTT -- Redis Streams --> Platform[Omni-Platform]
+    Platform -- SQL --> DB[(TimescaleDB)]
+    
+    subgraph Diagnostic Engines
+        Platform -- RPC --> IEP2[IEP2: XGBoost + IF]
+        Platform -- RPC --> IEP4[IEP4: CNN + Autoencoder OOD]
+    end
+    
+    IEP2 -- Vote --> Fusion[Spatial Fusion / TDOA]
+    IEP4 -- Vote --> Fusion
+    
+    Fusion -- Ticket --> IEP3[IEP3: Dispatch & Active Learning]
+    Platform -- Dashboard --> UI[Streamlit Ops Console]
 ```
-┌──────────────┐     ┌──────────────┐     ┌──────────────────┐
-│   Edge App   │────▶│  EEP (API    │────▶│  IEP 1 (YAMNet)  │
-│  (Smartphone │     │  Gateway)    │     │  Embedding Svc   │
-│   / Sensor)  │     │  FastAPI     │     │  TensorFlow Hub  │
-└──────────────┘     └──────┬───────┘     └──────────────────┘
-                            │                      │
-                            │              1024-d embedding
-                            │                      │
-                            ▼                      ▼
-                     ┌──────────────────────────────────┐
-                     │  IEP 2 (Diagnostic Engine)       │
-                     │  Stage 1: Isolation Forest (OOD) │
-                     │  Stage 2: XGBoost (Classifier)   │
-                     │  ONNX Runtime                    │
-                     └──────────────────────────────────┘
-```
+
+### Core Components
+
+1.  **EEP (API Gateway)**: High-performance entry point for HTTP-based diagnostics. Performs internal DSP feature extraction.
+2.  **IEP2 (Classic Engine)**: Uses XGBoost and Isolation Forests on structured DSP features (Kurtosis, Wavelet, Spectral Centroid).
+3.  **IEP4 (Deep Engine)**: End-to-end 2D-CNN spectrogram classifier with a **CNN Autoencoder** for reconstruction-based OOD detection (Taiwan Water Corp design, 99.07% accuracy).
+4.  **Omni-Platform**: The central nervous system. Handles Redis Streams, TimescaleDB persistence, and hosts the Streamlit-based **Operations Console**.
+5.  **Spatial Fusion**: Implements **TDOA (Time Difference of Arrival)** for multi-sensor localization of leaks.
+6.  **IEP3 (Dispatch)**: Manages maintenance tickets and closes the loop for active learning and model retraining.
+
+## Key Features
+
+-   **Epistemic Safety**: Two-stage OOD detection (Isolation Forest + CNN Autoencoder) ensures the system flags "I don't know" rather than providing false positives in unfamiliar environments.
+-   **Durable Messaging**: Powered by **Redis Streams** for at-least-once delivery guarantees.
+-   **Industrial Security**: Full **mTLS** encryption for MQTT ingestion from field edge agents.
+-   **Spatial Intelligence**: Multi-sensor fusion using TDOA to pin-point leak coordinates.
+-   **Observability**: Integrated Prometheus/Grafana stack with custom ML drift and confidence monitors.
 
 ## Quick Start
 
 ### Prerequisites
 - Docker & Docker Compose
 - Python 3.11+
+- [Optional] OpenSSL (for generating mTLS certs)
 
-### Run Locally
+### 1. Setup Security
+```bash
+./omni/scripts/gen_certs.sh
+```
+
+### 2. Launch Stack
 ```bash
 docker-compose up --build
 ```
 
-### API Usage
-```bash
-curl -X POST http://localhost:8000/api/v1/diagnose \
-  -F "audio=@sample.wav" \
-  -F 'metadata={"pipe_material": "PVC", "pressure_bar": 3.0}'
-```
-
-### Monitoring
+### 3. Access Dashboards
+- **Ops Console (Streamlit)**: http://localhost:8501
 - **Grafana**: http://localhost:3000 (admin/admin)
 - **Prometheus**: http://localhost:9090
-
-## Project Structure
-
-```
-omni-sense/
-├── eep/          # External Endpoint (API Gateway)
-├── iep1/         # Internal Endpoint 1 (YAMNet Embeddings)
-├── iep2/         # Internal Endpoint 2 (Diagnostic Engine)
-├── scripts/      # Data synthesis & model training
-├── monitoring/   # Prometheus + Grafana configs
-├── web-ui/       # Demo smartphone interface
-├── data/         # Datasets (gitignored)
-└── tests/        # Integration & E2E tests
-```
+- **API Gateway**: http://localhost:8000
 
 ## Engineering Tradeoffs
 
-| Tradeoff | Choice | Justification |
+| Feature | Choice | Justification |
 |---|---|---|
-| Latency vs Accuracy | 5s audio buffer | Infrastructure leaks are steady-state; temporal context > speed |
-| Hardware vs Cloud | Cheap sensors + cloud inference | Edge ML hardware is costly; cloud is updatable |
-| E2E DL vs Pipeline | Hybrid YAMNet + IF + XGBoost | Explicit OOD failure mode; modular debugging |
+| **Durable Bus** | Redis Streams | Better reliability than Pub/Sub; simpler than Kafka for mid-scale. |
+| **OOD Method** | CNN Reconstruction | Superior sensitivity to novel acoustic signatures vs. density methods. |
+| **Database** | TimescaleDB | Combines relational metadata with high-performance time-series telemetry. |
+| **Fusion** | TDOA + Voting | Increases confidence and provides spatial context for field crews. |
 
 ## Course
 

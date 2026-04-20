@@ -39,24 +39,11 @@ eep = [
     "slowapi>=0.1.9",
     "python-multipart>=0.0.9",
     "pydantic>=2.6",
+    "pydantic-settings>=2.1",
     "prometheus-client>=0.20",
     "prometheus-fastapi-instrumentator>=7.0",
     "soundfile>=0.12",
     "numpy>=1.26",
-]
-
-# IEP1 service
-iep1 = [
-    "fastapi>=0.110",
-    "uvicorn[standard]>=0.27",
-    "tensorflow>=2.15,<2.17",
-    "tensorflow-hub>=0.16",
-    "soundfile>=0.12",
-    "librosa>=0.10",
-    "numpy>=1.26",
-    "pydantic>=2.6",
-    "prometheus-client>=0.20",
-    "prometheus-fastapi-instrumentator>=7.0",
 ]
 
 # IEP2 service
@@ -84,9 +71,9 @@ target-version = "py311"
 line-length = 100
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP", "B", "SIM"]
+select = ["E", "F", "I", "I", "N", "W", "UP", "B", "SIM"]
 ignore = ["E501"]
 
 [tool.pytest.ini_options]
-testpaths = ["eep/tests", "iep1/tests", "iep2/tests", "tests"]
+testpaths = ["eep/tests", "iep2/tests", "tests"]
 asyncio_mode = "auto"

@@ -7,7 +7,7 @@ Flow:
     1. Validate audio payload (size, format)
     2. Signal QA checks (dead sensor, clipping)
     3. Amplitude-threshold baseline (industry 80dB trigger)
-    4. Call IEP1 for YAMNet embedding
+    4. Extract physics features locally (replaces IEP1)
     5. Call IEP2 for OOD detection + classification
     6. Fire-and-forget dispatch to IEP3 if high-confidence fault
     7. Return diagnosis or safety exception

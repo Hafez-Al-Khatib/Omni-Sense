@@ -1,17 +1,20 @@
 """
 Service Orchestrator
 =====================
-Coordinates calls from EEP → IEP1 (embedding) → IEP2 (diagnosis).
+Coordinates calls from EEP → IEP1 (local embedding) → IEP2 (diagnosis).
 Handles timeouts, retries, and error propagation.
 """
 
 import io
 import logging
+from typing import Optional
 
 import httpx
+import numpy as np
 from prometheus_client import Counter
 
 from app.config import settings
+from app.features import extract_features  # Local NumPy extraction
 
 # ─── Prometheus metrics ───────────────────────────────────────────────────────
 
@@ -35,50 +38,36 @@ class OrchestratorError(Exception):
 
 async def call_iep1_embed(audio_bytes: bytes) -> list[float]:
     """
-    Call IEP1 to extract YAMNet embedding.
+    Extract physics features locally (replaces the defunct IEP1 service).
 
     Args:
         audio_bytes: Raw WAV audio bytes
 
     Returns:
-        1024-element float list (embedding)
+        39-element float list (DSP features)
 
     Raises:
-        OrchestratorError: If IEP1 call fails
+        OrchestratorError: If extraction fails (e.g. malformed audio)
     """
-    url = f"{settings.IEP1_URL}/embed"
+    import soundfile as sf
+    try:
+        # Decode WAV
+        audio_data, sr = sf.read(io.BytesIO(audio_bytes))
+        if audio_data.ndim > 1:
+            audio_data = np.mean(audio_data, axis=1)
+        audio_data = audio_data.astype(np.float32)
 
-    async with httpx.AsyncClient(timeout=settings.IEP1_TIMEOUT) as client:
-        try:
-            files = {"audio": ("audio.wav", io.BytesIO(audio_bytes), "audio/wav")}
-            response = await client.post(url, files=files)
+        # Extract features locally — no HTTP call needed anymore
+        features = extract_features(audio_data, sr=sr)
+        return features.tolist()
 
-            if response.status_code != 200:
-                error_detail = response.json() if response.headers.get("content-type", "").startswith("application/json") else {"raw": response.text}
-                raise OrchestratorError(
-                    f"IEP1 returned {response.status_code}",
-                    status_code=response.status_code,
-                    detail=error_detail,
-                )
-
-            data = response.json()
-            return data["embedding"]
-
-        except httpx.TimeoutException:
-            raise OrchestratorError(
-                "IEP1 timeout: YAMNet inference took too long",
-                status_code=504,
-            )
-        except httpx.ConnectError:
-            raise OrchestratorError(
-                "IEP1 unreachable: YAMNet service is not running",
-                status_code=503,
-            )
-        except OrchestratorError:
-            raise
-        except Exception as e:
-            logger.error(f"IEP1 call failed: {e}", exc_info=True)
-            raise OrchestratorError(f"IEP1 error: {str(e)}", status_code=502)
+    except Exception as e:
+        logger.error(f"Local feature extraction failed: {e}", exc_info=True)
+        raise OrchestratorError(
+            f"Feature extraction failed: {str(e)}",
+            status_code=422,
+            detail={"error": "Malformed Audio or DSP Error"},
+        )
 
 
 async def call_iep2_diagnose(
@@ -90,7 +79,7 @@ async def call_iep2_diagnose(
     Call IEP2 to perform OOD detection + classification.
 
     Args:
-        embedding: 1024-d float list from IEP1
+        embedding: 39-d float list (local features)
         pipe_material: Pipe material type
         pressure_bar: Pipe pressure
 
@@ -272,10 +261,7 @@ async def call_iep2_calibrate(ambient_embeddings: list[list[float]]) -> dict:
     Call IEP2 calibration endpoint.
 
     Args:
-        ambient_embeddings: List of 1024-d embeddings from ambient recordings
-
-    Returns:
-        Calibration result dict
+        ambient_embeddings: List of 39-d local features from ambient recordings
     """
     url = f"{settings.IEP2_URL}/calibrate"
 

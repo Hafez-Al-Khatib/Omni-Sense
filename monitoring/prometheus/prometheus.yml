@@ -12,15 +12,6 @@ scrape_configs:
           service: "eep"
           role: "gateway"
 
-  # ── IEP1 (YAMNet Embedding Service) ──
-  - job_name: "iep1"
-    metrics_path: "/metrics"
-    static_configs:
-      - targets: ["iep1:8001"]
-        labels:
-          service: "iep1"
-          role: "feature_extraction"
-
   # ── IEP2 (Diagnostic Engine) ──
   - job_name: "iep2"
     metrics_path: "/metrics"

@@ -75,35 +75,10 @@ eep:
     initialDelaySeconds: 20
     periodSeconds: 20
   env:
-    OMNI_IEP1_URL: "http://iep1:8001"
     OMNI_IEP2_URL: "http://iep2:8002"
     OMNI_IEP3_URL: "http://iep3:8003"
     OMNI_IEP4_URL: "http://iep4:8004"
     OMNI_RATE_LIMIT: "5/minute"
-
-iep1:
-  name: iep1
-  replicas: 1
-  image:
-    repository: iep1
-  port: 8001
-  resources:
-    requests:
-      cpu: 200m
-      memory: 2Gi
-    limits:
-      cpu: "2"
-      memory: 4Gi
-  readinessProbe:
-    path: /health
-    port: 8001
-    initialDelaySeconds: 120
-    periodSeconds: 30
-  livenessProbe:
-    path: /health
-    port: 8001
-    initialDelaySeconds: 150
-    periodSeconds: 30
 
 iep2:
   name: iep2
@@ -286,7 +261,6 @@ sharedConfig:
   mqttHost: mqtt-broker
   mqttPort: "8883"
   eepApiUrl: "http://eep:8000"
-  iep1Url: "http://iep1:8001"
   iep2Url: "http://iep2:8002"
   iep3Url: "http://iep3:8003"
   iep4Url: "http://iep4:8004"
