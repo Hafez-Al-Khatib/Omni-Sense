@@ -1,8 +1,10 @@
 """
 EEP — External Endpoint (API Gateway)
 ========================================
-The system's single entry point. Orchestrates IEP1 and IEP2,
-validates payloads, enforces rate limits, and performs signal QA.
+The system's single entry point. Extracts DSP features locally,
+fans out to IEP2 (classical ML) and IEP4 (CNN) in parallel, and
+fires post-diagnosis tickets at IEP3.  Validates payloads,
+enforces rate limits, and performs signal QA.
 """
 
 import logging
@@ -42,8 +44,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    # Restrict methods/headers to what the API actually uses.
+    # The combination `allow_credentials=True` + `allow_methods=["*"]` is a
+    # known CSRF-attack surface and is rejected by modern browsers anyway.
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Accept", "Content-Type", "Authorization", "X-Request-ID"],
 )
 
 # ── Rate Limiting ──
@@ -66,10 +71,10 @@ app.include_router(calibrate_router, prefix="/api/v1", tags=["Calibration"])
 @app.get("/health")
 async def health():
     """System-wide health check."""
+    # NOTE: downstream URLs deliberately omitted from /health — the gateway
+    # should not leak its internal topology to external callers.
     return {
         "status": "healthy",
         "service": "eep",
         "version": "0.1.0",
-        "iep1_url": settings.IEP1_URL,
-        "iep2_url": settings.IEP2_URL,
     }

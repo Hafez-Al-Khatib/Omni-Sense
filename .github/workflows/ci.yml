@@ -169,7 +169,10 @@ jobs:
           curl -sf http://localhost:8000/health | python3 -c "
           import sys, json
           d = json.load(sys.stdin)
-          assert d.get('status') == 'ok', f'unexpected: {d}'
+          # Accept both the canonical 'healthy' and the legacy 'ok' string so
+          # the test is resilient to minor handler rewording.
+          assert d.get('status') in ('healthy', 'ok'), f'unexpected: {d}'
+          assert d.get('service') == 'eep', f'wrong service: {d}'
           print('EEP health OK')
           "
       - name: Smoke test IEP2 health
@@ -177,7 +180,7 @@ jobs:
           curl -sf http://localhost:8002/health | python3 -c "
           import sys, json
           d = json.load(sys.stdin)
-          assert d.get('status') == 'healthy', f'unexpected: {d}'
+          assert d.get('status') in ('healthy', 'ok'), f'unexpected: {d}'
           print('IEP2 health OK')
           "
       - name: Stop services

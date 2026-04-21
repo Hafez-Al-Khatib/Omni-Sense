@@ -11,7 +11,10 @@ class Settings(BaseSettings):
     """Application settings."""
 
     # Service URLs
-    IEP1_URL: str = "http://iep1:8001"
+    # Note: IEP1 (YAMNet) was decommissioned — DSP features are now extracted
+    # natively inside EEP (see app/features.py). IEP1_URL retained only for
+    # backward-compat env parsing; no runtime code consumes it.
+    IEP1_URL: str = ""  # DEPRECATED — retained only to accept legacy OMNI_IEP1_URL env var without crashing.
     IEP2_URL: str = "http://iep2:8002"
 
     # Rate limiting
@@ -51,7 +54,6 @@ class Settings(BaseSettings):
     IEP4_TIMEOUT: float = 15.0
 
     # Timeouts (seconds)
-    IEP1_TIMEOUT: float = 30.0
     IEP2_TIMEOUT: float = 10.0
 
     class Config:

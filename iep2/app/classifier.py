@@ -140,14 +140,28 @@ class LeakClassifier:
             logger.warning("label_map.json not found — using fallback binary map")
 
     def load(self) -> None:
+        """
+        Loads the ensemble models from disk.
+        
+        Raises:
+            FileNotFoundError: If no model artifacts are found.
+            RuntimeError: If a model file exists but fails to load into ONNX Runtime.
+        """
         self._xgb.load()
         self._rf.load()
 
         if not self._xgb.is_loaded and not self._rf.is_loaded:
             raise FileNotFoundError(
-                "No ONNX classifier models found. "
+                f"No ONNX classifier models found at {XGB_ONNX_PATH} or {RF_ONNX_PATH}. "
                 "Run scripts/train_models.py and export to ONNX first."
             )
+            
+        # If a file exists but isn't loaded, it means load() logged an error but didn't raise.
+        # We check the existence vs loaded state to ensure we don't have partial/corrupt loads.
+        if XGB_ONNX_PATH.exists() and not self._xgb.is_loaded:
+             raise RuntimeError(f"XGBoost model exists at {XGB_ONNX_PATH} but failed to load.")
+        if RF_ONNX_PATH.exists() and not self._rf.is_loaded:
+             raise RuntimeError(f"Random Forest model exists at {RF_ONNX_PATH} but failed to load.")
 
         model_dir = XGB_ONNX_PATH.parent
         self._load_label_map(model_dir)

@@ -128,7 +128,12 @@ class CNNClassifier:
             logger.info(f"CNN label map: {self._label_map}")
 
     def load(self) -> None:
-        """Try ONNX first, then PyTorch .pt file."""
+        """
+        Try ONNX first, then PyTorch .pt file.
+        
+        Raises:
+            FileNotFoundError: If no model artifacts are found.
+        """
         if CNN_ONNX_PATH.exists():
             try:
                 import onnxruntime as ort
@@ -164,9 +169,9 @@ class CNNClassifier:
             except Exception as exc:
                 logger.warning(f"CNN PyTorch load failed: {exc}")
 
-        logger.warning(
-            "CNN model not found. Run scripts/train_cnn.py to train it. "
-            "IEP4 will return 503 until a model is available."
+        raise FileNotFoundError(
+            f"CNN model not found at {CNN_ONNX_PATH} or {CNN_PT_PATH}. "
+            "Run scripts/train_cnn.py to train it."
         )
 
     def predict(self, waveform: np.ndarray) -> dict:

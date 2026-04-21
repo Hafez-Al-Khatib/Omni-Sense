@@ -7,10 +7,11 @@ Flow:
     1. Validate audio payload (size, format)
     2. Signal QA checks (dead sensor, clipping)
     3. Amplitude-threshold baseline (industry 80dB trigger)
-    4. Extract physics features locally (replaces IEP1)
-    5. Call IEP2 for OOD detection + classification
-    6. Fire-and-forget dispatch to IEP3 if high-confidence fault
-    7. Return diagnosis or safety exception
+    4. Extract 39-d physics features locally (replaces decommissioned IEP1)
+    5. Fan-out in parallel to IEP2 (XGBoost+RF, classical) and IEP4 (CNN)
+    6. Weighted ensemble of IEP2 and IEP4 probabilities (OOD short-circuits)
+    7. Fire-and-forget dispatch to IEP3 if high-confidence fault
+    8. Return diagnosis or safety (OOD) exception
 """
 
 import asyncio
@@ -36,12 +37,14 @@ from app.middleware.rate_limiter import limiter
 from app.services.baseline import run_baseline
 from app.services.orchestrator import (
     OrchestratorError,
-    call_iep1_embed,
     call_iep2_diagnose,
     call_iep3_notify,
     call_iep4_classify,
     ensemble_iep2_iep4,
+    extract_features_local,
 )
+# Back-compat import alias (kept for tests that patch `call_iep1_embed`).
+from app.services.orchestrator import extract_features_local as call_iep1_embed  # noqa: F401
 from app.services.signal_qa import check_signal_quality
 
 logger = logging.getLogger("eep.diagnose")
@@ -157,17 +160,17 @@ async def diagnose(
             },
         )
 
-    # ── Call IEP1: Extract physics features ──
+    # ── Extract 39-d physics features locally (replaces decommissioned IEP1) ──
     try:
-        embedding = await call_iep1_embed(audio_bytes)
+        embedding = await extract_features_local(audio_bytes)
     except OrchestratorError as e:
-        logger.error(f"IEP1 orchestration error: {e}")
+        logger.error(f"Local feature extraction error: {e}")
         raise HTTPException(
             status_code=e.status_code,
             detail={
                 "error": "Feature Extraction Failed",
                 "message": str(e),
-                "service": "IEP1 (Vibration Feature Extractor)",
+                "service": "EEP DSP pipeline",
                 **e.detail,
             },
         )

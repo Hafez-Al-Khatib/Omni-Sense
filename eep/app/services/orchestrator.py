@@ -1,13 +1,20 @@
 """
 Service Orchestrator
 =====================
-Coordinates calls from EEP → IEP1 (local embedding) → IEP2 (diagnosis).
-Handles timeouts, retries, and error propagation.
+Extracts DSP features locally inside EEP, then fans out to IEP2 (classical
+ML) and IEP4 (CNN) in parallel, ensembling their outputs.  Handles
+timeouts, retries, and error propagation.
+
+Historical note: this module used to call a separate IEP1 (YAMNet)
+microservice over HTTP.  IEP1 was decommissioned because its 208-d
+airborne-audio embeddings were incompatible with the 39-d structure-borne
+physics feature space that IEP2 actually wants.  ``call_iep1_embed`` is
+retained as a deprecated alias for ``extract_features_local`` so that
+existing callers and tests continue to work.
 """
 
 import io
 import logging
-from typing import Optional
 
 import httpx
 import numpy as np
@@ -36,15 +43,20 @@ class OrchestratorError(Exception):
         self.detail = detail or {}
 
 
-async def call_iep1_embed(audio_bytes: bytes) -> list[float]:
+async def extract_features_local(audio_bytes: bytes) -> list[float]:
     """
-    Extract physics features locally (replaces the defunct IEP1 service).
+    Extract physics-based DSP features inside the EEP process.
+
+    This replaced the old IEP1 microservice.  Kept as an ``async def`` for
+    API symmetry with the other ``call_iep*`` coroutines — NumPy work is
+    synchronous but fast enough that the event loop is not blocked in
+    practice (a 5-second 16-kHz clip extracts in <10 ms).
 
     Args:
         audio_bytes: Raw WAV audio bytes
 
     Returns:
-        39-element float list (DSP features)
+        39-element float list (see ``eep.app.features._FEATURE_DIM``)
 
     Raises:
         OrchestratorError: If extraction fails (e.g. malformed audio)
@@ -68,6 +80,10 @@ async def call_iep1_embed(audio_bytes: bytes) -> list[float]:
             status_code=422,
             detail={"error": "Malformed Audio or DSP Error"},
         )
+
+
+# Deprecated alias — kept for test/back-compat reasons.  Remove in v1.0.
+call_iep1_embed = extract_features_local
 
 
 async def call_iep2_diagnose(

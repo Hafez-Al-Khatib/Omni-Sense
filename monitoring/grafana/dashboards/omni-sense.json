@@ -70,7 +70,8 @@
             }
         },
         {
-            "title": "IEP1 Inference Duration",
+            "title": "IEP4 CNN Inference Duration",
+            "description": "Spectrogram CNN classifier latency (p50/p95). Replaces the decommissioned IEP1 YAMNet panel; DSP feature extraction now happens natively in EEP.",
             "type": "timeseries",
             "gridPos": {
                 "h": 8,
@@ -84,11 +85,11 @@
             },
             "targets": [
                 {
-                    "expr": "histogram_quantile(0.5, rate(iep1_inference_duration_seconds_bucket[5m]))",
+                    "expr": "histogram_quantile(0.5, rate(iep4_cnn_inference_duration_seconds_bucket[5m]))",
                     "legendFormat": "p50"
                 },
                 {
-                    "expr": "histogram_quantile(0.95, rate(iep1_inference_duration_seconds_bucket[5m]))",
+                    "expr": "histogram_quantile(0.95, rate(iep4_cnn_inference_duration_seconds_bucket[5m]))",
                     "legendFormat": "p95"
                 }
             ],
