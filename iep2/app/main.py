@@ -2,7 +2,7 @@
 IEP 2 — Diagnostic & Safety Engine
 =====================================
 Two-stage inference pipeline:
-  Stage 1: Isolation Forest (OOD detection / safety watchdog)
+  Stage 1: Autoencoder (OOD detection / safety watchdog)
   Stage 2: XGBoost (leak classification with calibrated probabilities)
 
 Accepts 1024-d YAMNet embeddings + metadata, returns diagnosis.
@@ -20,7 +20,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from app.calibration import CalibrationManager
 from app.classifier import LeakClassifier
 from app.drift_monitor import drift_monitor
-from app.ood_detector import OODDetector
+from app.autoencoder_ood_detector import AutoencoderOODDetector
 from app.schemas import (
     CalibrateRequest,
     CalibrateResponse,
@@ -120,7 +120,7 @@ app = FastAPI(
 Instrumentator().instrument(app).expose(app)
 
 # Service singletons
-ood_detector = OODDetector()
+ood_detector = AutoencoderOODDetector()
 classifier = LeakClassifier()
 calibration_mgr = CalibrationManager()
 
@@ -131,7 +131,7 @@ _CENTROID_PATH = Path("models/centroid.npy")
 @app.on_event("startup")
 async def startup():
     """Load models on startup."""
-    logger.info("Loading Isolation Forest model...")
+    logger.info("Loading Autoencoder OOD model...")
     ood_detector.load()
     logger.info("Loading XGBoost model...")
     classifier.load()
@@ -159,7 +159,7 @@ async def diagnose(request: DiagnoseRequest):
     """
     Two-stage diagnostic pipeline.
 
-    Stage 1: OOD check via Isolation Forest
+    Stage 1: OOD check via Autoencoder
     Stage 2: Leak classification via XGBoost (if in-distribution)
     """
     if not ood_detector.is_loaded or not classifier.is_loaded:
