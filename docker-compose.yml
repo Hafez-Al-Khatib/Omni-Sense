@@ -1,0 +1,243 @@
+services:
+  # ── External Endpoint (API Gateway) ─────────────────────
+  eep:
+    build:
+      context: ./eep
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - OMNI_IEP2_URL=http://iep2:8002
+      - OMNI_IEP3_URL=http://iep3:8003
+      - OMNI_IEP4_URL=http://iep4:8004
+      - OMNI_RATE_LIMIT=5/minute
+    depends_on:
+      iep2:
+        condition: service_healthy
+      iep3:
+        condition: service_healthy
+      iep4:
+        condition: service_healthy
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  # IEP1 (YAMNet Embeddings) — REMOVED
+  # YAMNet produced 208-d airborne-audio embeddings that are incompatible with
+  # the 39-d structure-borne DSP feature space used by IEP2 and the Omni
+  # orchestrator.  The EEP now extracts DSP features internally (omni/eep/features.py)
+  # and passes them directly to IEP2 — no separate embedding microservice needed.
+  # The 4 GB memory reservation and 120 s startup delay are also eliminated.
+
+  # ── Internal Endpoint 2 (Diagnostic Engine) ─────────────
+  iep2:
+    build:
+      context: ./iep2
+      dockerfile: Dockerfile
+    ports:
+      - "8002:8002"
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')" ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  # ── Internal Endpoint 4 (CNN Deep Classifier) ───────────
+  iep4:
+    build:
+      context: ./iep4
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8004"
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')" ]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s  # CNN model load time
+      retries: 3
+    volumes:
+      - iep4-models:/app/models
+    networks:
+      - omni-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  # ── Prometheus (Metrics Collection) ─────────────────────
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  # ── Grafana (Dashboards) ────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      # Credentials sourced from .env (see .env.example).  Defaults only apply
+      # to local dev; production deploys MUST override via env/secret manager.
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required — copy .env.example to .env}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards-json:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  # ── Internal Endpoint 3 (Dispatch & Active Learning) ────
+  iep3:
+    build:
+      context: ./iep3
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8003"
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')" ]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    volumes:
+      - iep3-tickets:/app/tickets
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  # ── MQTT Broker (Mosquitto + mTLS) ──────────────────────
+  mqtt-broker:
+    image: eclipse-mosquitto:2.0
+    ports:
+      - "8883:8883"      # MQTTS (TLS only — no plaintext 1883)
+    volumes:
+      - ./omni/configs/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./omni/configs/mqtt_acl:/mosquitto/config/acl:ro
+      - ./certs:/mosquitto/certs:ro          # gen_certs.sh output
+      - mqtt-data:/mosquitto/data
+    networks:
+      - omni-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1",
+             "--cafile", "/mosquitto/certs/ca.crt",
+             "--cert",   "/mosquitto/certs/gateway.crt",
+             "--key",    "/mosquitto/certs/gateway.key",
+             "-p", "8883", "-h", "localhost", "-W", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Platform v2 (EEP v2 + Intelligence + Action layer) ──
+  omni-platform:
+    build:
+      context: .
+      dockerfile: omni/Dockerfile
+    ports:
+      - "8501:8501"      # Streamlit ops console
+    environment:
+      - OMNI_MQTT_HOST=mqtt-broker
+      - OMNI_MQTT_PORT=8883
+      - OMNI_MQTT_CA=/app/certs/ca.crt
+      - OMNI_MQTT_CERT=/app/certs/gateway.crt
+      - OMNI_MQTT_KEY=/app/certs/gateway.key
+      - OMNI_MQTT_USER=gateway
+      - OMNI_USE_STUB_GATEWAY=false
+      - TIMESCALE_DSN=postgresql://${POSTGRES_USER:-omni}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@timescaledb:5432/${POSTGRES_DB:-omnisense}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./iep2/models:/app/iep2/models:ro     # read trained models for drift eval
+      - ./iep3:/app/iep3                       # read/write feedback_log.csv
+      - omni-data:/app/data
+    depends_on:
+      mqtt-broker:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - omni-net
+    restart: unless-stopped
+    command: >
+      sh -c "streamlit run omni/ops_console/app.py
+             --server.port=8501
+             --server.address=0.0.0.0
+             --server.headless=true"
+
+  # ── TimescaleDB (time-series + relational persistence) ──
+  timescaledb:
+    image: timescale/timescaledb-ha:pg16-latest
+    ports:
+      - "5432:5432"
+    environment:
+      # Credentials sourced from .env (see .env.example).  The :? operator
+      # forces the container to refuse to start if the password is unset,
+      # so we never accidentally ship with a default password.
+      POSTGRES_USER: ${POSTGRES_USER:-omni}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — copy .env.example to .env}
+      POSTGRES_DB: ${POSTGRES_DB:-omnisense}
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./omni/common/db_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omni -d omnisense"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  # ── Redis (distributed event bus + cache) ────────────────
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+networks:
+  omni-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  iep3-tickets:
+  iep4-models:
+  mqtt-data:
+  omni-data:
+  timescale-data:
+  redis-data:

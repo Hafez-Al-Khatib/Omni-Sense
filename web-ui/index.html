@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Omni-Sense — Acoustic Diagnostics</title>
+    <meta name="description" content="Cloud-native acoustic diagnostic platform for urban infrastructure leak detection.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-brand">
+                <div class="logo">
+                    <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="16" cy="16" r="15" stroke="currentColor" stroke-width="1.5"/>
+                        <path d="M8 16 Q12 8, 16 16 Q20 24, 24 16" stroke="currentColor" stroke-width="2" fill="none"/>
+                        <circle cx="16" cy="16" r="3" fill="currentColor"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1>Omni-Sense</h1>
+                    <p class="subtitle">Acoustic Diagnostics</p>
+                </div>
+            </div>
+            <div class="status-indicator" id="connectionStatus">
+                <span class="dot"></span>
+                <span>Online</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Recording Section -->
+            <section class="card recording-card" id="recordingSection">
+                <h2>Record Audio Sample</h2>
+                <p class="card-desc">Capture a 5-second acoustic sample from the infrastructure point.</p>
+
+                <div class="recorder">
+                    <button class="record-btn" id="recordBtn" aria-label="Record audio">
+                        <div class="record-ring"></div>
+                        <div class="record-inner" id="recordInner">
+                            <svg viewBox="0 0 24 24" fill="currentColor" id="micIcon">
+                                <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+                                <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+                            </svg>
+                        </div>
+                    </button>
+                    <div class="record-timer" id="recordTimer">0.0s</div>
+                    <div class="waveform" id="waveform"></div>
+                </div>
+
+                <!-- Or Upload -->
+                <div class="upload-section">
+                    <span class="divider-text">or upload a file</span>
+                    <label class="upload-btn" for="fileInput">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+                        </svg>
+                        Choose File
+                    </label>
+                    <input type="file" id="fileInput" accept=".wav,.ogg,.flac" hidden>
+                    <span class="file-name" id="fileName"></span>
+                </div>
+            </section>
+
+            <!-- Metadata Section -->
+            <section class="card metadata-card">
+                <h2>Environment Metadata</h2>
+                <p class="card-desc">Provide context about the recording environment.</p>
+
+                <div class="form-group">
+                    <label for="pipeMaterial">Pipe Material</label>
+                    <select id="pipeMaterial">
+                        <option value="PVC" selected>PVC</option>
+                        <option value="Steel">Steel</option>
+                        <option value="Cast_Iron">Cast Iron</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="pressureBar">
+                        Pressure: <span id="pressureValue">3.0</span> bar
+                    </label>
+                    <input type="range" id="pressureBar" min="0.5" max="10" step="0.5" value="3.0">
+                    <div class="range-labels">
+                        <span>0.5</span>
+                        <span>10.0</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Submit -->
+            <button class="submit-btn" id="submitBtn" disabled>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/>
+                </svg>
+                Analyze Sample
+            </button>
+
+            <!-- Results Section (hidden by default) -->
+            <section class="card result-card" id="resultSection" style="display:none">
+                <h2>Diagnosis Result</h2>
+
+                <!-- Confidence Gauge -->
+                <div class="gauge-container">
+                    <div class="gauge" id="confidenceGauge">
+                        <svg viewBox="0 0 200 120">
+                            <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="var(--surface-2)" stroke-width="12" stroke-linecap="round"/>
+                            <path d="M20 100 A80 80 0 0 1 180 100" fill="none" stroke="var(--primary)" stroke-width="12" stroke-linecap="round" id="gaugeArc" stroke-dasharray="0 251"/>
+                        </svg>
+                        <div class="gauge-value" id="gaugeValue">—</div>
+                        <div class="gauge-label" id="gaugeLabel">Confidence</div>
+                    </div>
+                </div>
+
+                <!-- Result Details -->
+                <div class="result-details">
+                    <div class="result-row">
+                        <span class="result-key">Classification</span>
+                        <span class="result-value badge" id="resultLabel">—</span>
+                    </div>
+                    <div class="result-row">
+                        <span class="result-key">Anomaly Score</span>
+                        <span class="result-value" id="resultAnomaly">—</span>
+                    </div>
+                    <div class="result-row">
+                        <span class="result-key">In Distribution</span>
+                        <span class="result-value" id="resultOOD">—</span>
+                    </div>
+                    <div class="result-row">
+                        <span class="result-key">Signal RMS</span>
+                        <span class="result-value" id="resultRMS">—</span>
+                    </div>
+                    <div class="result-row">
+                        <span class="result-key">Latency</span>
+                        <span class="result-value" id="resultLatency">—</span>
+                    </div>
+                </div>
+
+                <!-- Probability Bars -->
+                <div class="prob-section">
+                    <h3>Class Probabilities</h3>
+                    <div id="probBars"></div>
+                </div>
+            </section>
+
+            <!-- OOD Alert (hidden) -->
+            <section class="card ood-card" id="oodSection" style="display:none">
+                <div class="ood-icon">⚠️</div>
+                <h2>Out-of-Distribution Detected</h2>
+                <p id="oodDetail"></p>
+                <div class="result-row">
+                    <span class="result-key">Anomaly Score</span>
+                    <span class="result-value" id="oodScore">—</span>
+                </div>
+                <button class="calibrate-btn" id="calibrateBtn">
+                    🔧 Calibrate to This Environment
+                </button>
+            </section>
+
+            <!-- Loading Overlay -->
+            <div class="loading-overlay" id="loadingOverlay" style="display:none">
+                <div class="spinner"></div>
+                <p>Analyzing acoustic signature...</p>
+            </div>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>EECE503N · AI Engineering Capstone · AUB</p>
+        </footer>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

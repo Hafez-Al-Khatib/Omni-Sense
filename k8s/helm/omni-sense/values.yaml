@@ -1,0 +1,267 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Omni-Sense Helm Chart — Default Values
+# Override with: helm install omni-sense . -f my-values.yaml
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Namespace to deploy into (created if it does not exist)
+namespace: omni-sense
+
+# Global image settings
+image:
+  registry: ghcr.io/omni-sense
+  tag: "2.0.0"
+  pullPolicy: IfNotPresent
+
+# Image pull secrets (set to the name of a kubernetes.io/dockerconfigjson secret)
+imagePullSecrets: []
+# - name: ghcr-pull-secret
+
+# ── Per-service overrides ──────────────────────────────────────────────────────
+omniPlatform:
+  name: omni-platform
+  replicas: 1
+  image:
+    repository: omni-platform
+  port: 8501
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  hpa:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+  readinessProbe:
+    path: /health
+    port: 8501
+    initialDelaySeconds: 15
+    periodSeconds: 10
+  livenessProbe:
+    path: /health
+    port: 8501
+    initialDelaySeconds: 30
+    periodSeconds: 20
+  env:
+    OMNI_MQTT_HOST: "mqtt-broker"
+    OMNI_MQTT_PORT: "8883"
+    OMNI_USE_STUB_GATEWAY: "false"
+  # Twilio and other secrets are injected from the omni-sense-secret Secret
+
+eep:
+  name: eep
+  replicas: 1
+  image:
+    repository: eep
+  port: 8000
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  readinessProbe:
+    path: /health
+    port: 8000
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  livenessProbe:
+    path: /health
+    port: 8000
+    initialDelaySeconds: 20
+    periodSeconds: 20
+  env:
+    OMNI_IEP2_URL: "http://iep2:8002"
+    OMNI_IEP3_URL: "http://iep3:8003"
+    OMNI_IEP4_URL: "http://iep4:8004"
+    OMNI_RATE_LIMIT: "5/minute"
+
+iep2:
+  name: iep2
+  replicas: 1
+  image:
+    repository: iep2
+  port: 8002
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  hpa:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+  readinessProbe:
+    path: /health
+    port: 8002
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  livenessProbe:
+    path: /health
+    port: 8002
+    initialDelaySeconds: 20
+    periodSeconds: 20
+
+iep3:
+  name: iep3
+  replicas: 1
+  image:
+    repository: iep3
+  port: 8003
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  readinessProbe:
+    path: /health
+    port: 8003
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  livenessProbe:
+    path: /health
+    port: 8003
+    initialDelaySeconds: 20
+    periodSeconds: 20
+
+iep4:
+  name: iep4
+  replicas: 1
+  image:
+    repository: iep4
+  port: 8004
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 2Gi
+  hpa:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
+  readinessProbe:
+    path: /health
+    port: 8004
+    initialDelaySeconds: 20
+    periodSeconds: 10
+  livenessProbe:
+    path: /health
+    port: 8004
+    initialDelaySeconds: 40
+    periodSeconds: 20
+
+# ── TimescaleDB ────────────────────────────────────────────────────────────────
+timescaledb:
+  name: timescaledb
+  image: timescale/timescaledb:latest-pg15
+  port: 5432
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 10Gi
+    accessMode: ReadWriteOnce
+  # Database credentials — populated from the omni-sense-secret Secret
+  # Set TIMESCALEDB_PASSWORD in the secret before deploying
+  database: omnisense
+  user: omnisense
+
+# ── Redis ──────────────────────────────────────────────────────────────────────
+redis:
+  name: redis
+  image: redis:7-alpine
+  port: 6379
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+  persistence:
+    enabled: true
+    storageClass: ""
+    size: 1Gi
+    accessMode: ReadWriteOnce
+  args:
+    - "--save"
+    - "60"
+    - "1"
+    - "--loglevel"
+    - "warning"
+
+# ── MQTT Broker (Mosquitto) ────────────────────────────────────────────────────
+mqtt:
+  name: mqtt-broker
+  image: eclipse-mosquitto:2.0
+  port: 8883
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+  # Secrets (TLS certificates) must be provided via a separate Secret or volume
+  # See templates/mqtt/configmap.yaml for mosquitto.conf
+
+# ── Ingress ────────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    # Uncomment to enable TLS termination via cert-manager
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    api:
+      host: api.omni-sense.lb
+      path: /
+    console:
+      host: console.omni-sense.lb
+      path: /
+  tls: []
+  # - secretName: omni-sense-tls
+  #   hosts:
+  #     - api.omni-sense.lb
+  #     - console.omni-sense.lb
+
+# ── Prometheus ServiceMonitor ──────────────────────────────────────────────────
+serviceMonitor:
+  enabled: true
+  # The label that your Prometheus Operator watches
+  prometheusLabel:
+    release: kube-prometheus-stack
+  interval: 30s
+  scrapeTimeout: 10s
+  # Path for Prometheus metrics on each service
+  metricsPath: /metrics
+
+# ── Shared config pushed via ConfigMap ────────────────────────────────────────
+sharedConfig:
+  mqttHost: mqtt-broker
+  mqttPort: "8883"
+  eepApiUrl: "http://eep:8000"
+  iep2Url: "http://iep2:8002"
+  iep3Url: "http://iep3:8003"
+  iep4Url: "http://iep4:8004"
+  logLevel: INFO

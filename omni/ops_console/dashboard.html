@@ -1,0 +1,1178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Omni-Sense · Ops Console</title>
+
+<!-- Mapbox GL JS — only external dependency -->
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+
+<style>
+/* ─── Reset & fonts ─────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg0:     #0d1117;
+  --bg1:     #161b22;
+  --bg2:     #21262d;
+  --bg3:     #30363d;
+  --border:  #30363d;
+  --text0:   #f0f6fc;
+  --text1:   #c9d1d9;
+  --text2:   #8b949e;
+  --accent:  #58a6ff;
+  --green:   #3fb950;
+  --yellow:  #d29922;
+  --orange:  #db6d28;
+  --red:     #f85149;
+  --purple:  #bc8cff;
+  --cyan:    #39d353;
+  --panel-w: 340px;
+  --header-h: 52px;
+  --stats-h:  42px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+}
+
+body { background: var(--bg0); color: var(--text1); height: 100vh;
+       overflow: hidden; display: flex; flex-direction: column; }
+
+/* ─── Header ─────────────────────────────────────────────────────────────── */
+#header {
+  height: var(--header-h);
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 12px;
+  flex-shrink: 0;
+  z-index: 10;
+}
+#header .logo {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text0);
+  letter-spacing: -0.3px;
+}
+#header .logo span { color: var(--accent); }
+#header .spacer { flex: 1; }
+#ws-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text2);
+}
+#ws-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  transition: background 0.3s;
+}
+#ws-dot.connected { background: var(--green); }
+#ws-dot.connecting { background: var(--yellow); animation: pulse-dot 1s infinite; }
+#reconnect-btn {
+  padding: 4px 10px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  color: var(--text1);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+#reconnect-btn:hover { background: var(--bg3); }
+#time-display { font-size: 12px; color: var(--text2); font-variant-numeric: tabular-nums; }
+
+/* ─── Stats bar ──────────────────────────────────────────────────────────── */
+#stats-bar {
+  height: var(--stats-h);
+  background: var(--bg1);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  gap: 0;
+  flex-shrink: 0;
+}
+.stat-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px;
+  border-right: 1px solid var(--border);
+  height: 100%;
+}
+.stat-cell:last-child { border-right: none; }
+.stat-label { font-size: 11px; color: var(--text2); text-transform: uppercase;
+               letter-spacing: 0.5px; white-space: nowrap; }
+.stat-value { font-size: 15px; font-weight: 600; color: var(--text0);
+               font-variant-numeric: tabular-nums; }
+.stat-value.ok { color: var(--green); }
+.stat-value.warn { color: var(--yellow); }
+.stat-value.alert { color: var(--red); }
+
+/* ─── Main layout ────────────────────────────────────────────────────────── */
+#main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* ─── Map ────────────────────────────────────────────────────────────────── */
+#map-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+#map { position: absolute; inset: 0; }
+
+/* ─── Token gate ─────────────────────────────────────────────────────────── */
+#token-gate {
+  position: absolute;
+  inset: 0;
+  background: var(--bg0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  flex-direction: column;
+  gap: 16px;
+}
+#token-gate h2 { color: var(--text0); font-size: 20px; }
+#token-gate p  { color: var(--text2); font-size: 13px; max-width: 360px;
+                  text-align: center; line-height: 1.5; }
+#token-input {
+  width: 360px;
+  padding: 10px 14px;
+  background: var(--bg1);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text0);
+  font-size: 13px;
+}
+#token-submit {
+  padding: 10px 24px;
+  background: var(--accent);
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+#token-submit:hover { filter: brightness(1.1); }
+
+/* ─── Side panels ────────────────────────────────────────────────────────── */
+#right-panel {
+  width: var(--panel-w);
+  background: var(--bg1);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.panel-section {
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.panel-section.flex-grow {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.panel-header {
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.badge {
+  background: var(--bg3);
+  border-radius: 10px;
+  padding: 1px 7px;
+  font-size: 10px;
+  color: var(--text1);
+  font-weight: 600;
+}
+
+/* ─── Alert list ─────────────────────────────────────────────────────────── */
+#alert-list {
+  overflow-y: auto;
+  flex: 1;
+}
+.alert-item {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.alert-item:hover { background: var(--bg2); }
+.alert-item-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.sev-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+.sev-critical { background: #5c1414; color: #ff8080; }
+.sev-high     { background: #5c2f14; color: #ffaa5c; }
+.sev-medium   { background: #5c4a14; color: #ffd45c; }
+.sev-low      { background: #1a3a1a; color: #5cf05c; }
+.sev-info     { background: #1a2a4a; color: #5cb0ff; }
+.alert-title  { font-size: 12px; color: var(--text0); font-weight: 600;
+                 overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.alert-meta   { font-size: 11px; color: var(--text2); display: flex;
+                 gap: 8px; flex-wrap: wrap; }
+.alert-loss   { color: var(--orange); font-weight: 600; }
+
+/* ─── Work order list ────────────────────────────────────────────────────── */
+#wo-list { overflow-y: auto; max-height: 200px; }
+.wo-item {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+.wo-status {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 700;
+  font-size: 10px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.wo-DISPATCHED   { background: #1a3a4a; color: var(--accent); }
+.wo-IN_PROGRESS  { background: #2a3a1a; color: var(--green); }
+.wo-COMPLETED    { background: var(--bg3); color: var(--text2); }
+.wo-DRAFT        { background: var(--bg2); color: var(--text2); }
+.wo-CANCELLED    { background: var(--bg2); color: var(--text2); }
+.wo-info { flex: 1; min-width: 0; }
+.wo-crew { color: var(--accent); }
+.wo-pipe { color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ─── Sensor list ────────────────────────────────────────────────────────── */
+#sensor-list { overflow-y: auto; max-height: 160px; }
+.sensor-row {
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.sensor-row:hover { background: var(--bg2); }
+.sensor-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.sensor-id { color: var(--text0); font-weight: 600; flex: 1; }
+.sensor-batt { color: var(--text2); font-variant-numeric: tabular-nums; }
+.sensor-p { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ─── Mapbox popup ───────────────────────────────────────────────────────── */
+.mapboxgl-popup-content {
+  background: var(--bg1) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: 8px !important;
+  padding: 14px 16px !important;
+  color: var(--text1) !important;
+  min-width: 240px;
+}
+.mapboxgl-popup-tip { display: none !important; }
+.popup-title { font-size: 14px; font-weight: 700; color: var(--text0);
+                margin-bottom: 10px; border-bottom: 1px solid var(--border);
+                padding-bottom: 8px; }
+.popup-grid { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+.popup-key  { font-size: 11px; color: var(--text2); }
+.popup-val  { font-size: 12px; color: var(--text0); font-weight: 600;
+               font-variant-numeric: tabular-nums; }
+
+/* ─── Pulse animation for active leaks ───────────────────────────────────── */
+@keyframes pulse-ring {
+  0%   { transform: translate(-50%, -50%) scale(1);   opacity: 0.8; }
+  100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+.pulse-marker {
+  position: relative;
+  width: 16px; height: 16px;
+}
+.pulse-marker::before {
+  content: '';
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: rgba(248, 81, 73, 0.5);
+  transform: translate(-50%, -50%);
+  animation: pulse-ring 1.5s ease-out infinite;
+}
+.pulse-marker-inner {
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  background: var(--red);
+  border: 2px solid white;
+}
+
+/* ─── Map legend ─────────────────────────────────────────────────────────── */
+#map-legend {
+  position: absolute;
+  bottom: 28px;
+  left: 14px;
+  background: var(--bg1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 11px;
+  z-index: 5;
+  pointer-events: none;
+}
+.legend-row { display: flex; align-items: center; gap: 7px; margin: 3px 0; }
+.legend-line { width: 20px; height: 3px; border-radius: 2px; }
+.legend-dot  { width: 10px; height: 10px; border-radius: 50%; }
+.legend-label { color: var(--text2); }
+
+/* ─── Scrollbars ─────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg3); border-radius: 3px; }
+</style>
+</head>
+
+<body>
+
+<!-- ─── Token gate ──────────────────────────────────────────────────────── -->
+<div id="token-gate">
+  <h2>Omni-Sense Ops Console</h2>
+  <p>Enter your Mapbox public token to initialize the map.<br>
+     It will be saved in localStorage for future sessions.</p>
+  <input id="token-input" type="text" placeholder="pk.eyJ1IjoiY..." />
+  <button id="token-submit">Launch Dashboard</button>
+</div>
+
+<!-- ─── Header ─────────────────────────────────────────────────────────── -->
+<div id="header">
+  <div class="logo">Omni<span>-Sense</span> &middot; Ops Console</div>
+  <span style="font-size:11px;color:var(--text2);margin-left:4px;">Beirut Water Network</span>
+  <div class="spacer"></div>
+  <div id="time-display">--:--:--</div>
+  <div id="ws-status">
+    <div id="ws-dot" class="connecting"></div>
+    <span id="ws-label">Connecting…</span>
+    <button id="reconnect-btn" title="Reconnect WebSocket">Reconnect</button>
+  </div>
+</div>
+
+<!-- ─── Stats bar ───────────────────────────────────────────────────────── -->
+<div id="stats-bar">
+  <div class="stat-cell">
+    <span class="stat-label">Frames/s</span>
+    <span class="stat-value" id="stat-fps">0.0</span>
+  </div>
+  <div class="stat-cell">
+    <span class="stat-label">Active Alerts</span>
+    <span class="stat-value" id="stat-alerts">0</span>
+  </div>
+  <div class="stat-cell">
+    <span class="stat-label">Sensors Online</span>
+    <span class="stat-value ok" id="stat-sensors">0 / 0</span>
+  </div>
+  <div class="stat-cell">
+    <span class="stat-label">Water Loss</span>
+    <span class="stat-value" id="stat-loss">0 L/h</span>
+  </div>
+  <div class="stat-cell">
+    <span class="stat-label">Audit Chain</span>
+    <span class="stat-value ok" id="stat-audit">—</span>
+  </div>
+</div>
+
+<!-- ─── Main ────────────────────────────────────────────────────────────── -->
+<div id="main">
+
+  <!-- Map -->
+  <div id="map-container">
+    <div id="map"></div>
+    <div id="map-legend">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);margin-bottom:6px;text-transform:uppercase;">Pipe RUL</div>
+      <div class="legend-row"><div class="legend-line" style="background:#3fb950;"></div><span class="legend-label">&gt; 365 d — Low risk</span></div>
+      <div class="legend-row"><div class="legend-line" style="background:#d29922;"></div><span class="legend-label">90–365 d — Moderate</span></div>
+      <div class="legend-row"><div class="legend-line" style="background:#db6d28;"></div><span class="legend-label">30–90 d — Elevated</span></div>
+      <div class="legend-row"><div class="legend-line" style="background:#f85149;"></div><span class="legend-label">&lt; 30 d — Critical</span></div>
+      <div style="margin-top:8px;font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;">Sensors</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#58a6ff;"></div><span class="legend-label">Normal</span></div>
+      <div class="legend-row"><div class="legend-dot" style="background:#f85149;border:2px solid white;"></div><span class="legend-label">Leak detected</span></div>
+    </div>
+  </div>
+
+  <!-- Right panel -->
+  <div id="right-panel">
+
+    <!-- Alerts -->
+    <div class="panel-section flex-grow" style="flex:1.6;">
+      <div class="panel-header">
+        Live Alerts
+        <span class="badge" id="alert-count-badge">0</span>
+      </div>
+      <div id="alert-list"></div>
+    </div>
+
+    <!-- Work orders -->
+    <div class="panel-section">
+      <div class="panel-header">
+        Work Orders
+        <span class="badge" id="wo-count-badge">0</span>
+      </div>
+      <div id="wo-list"></div>
+    </div>
+
+    <!-- Sensors -->
+    <div class="panel-section">
+      <div class="panel-header">
+        Sensor Twins
+        <span class="badge" id="sensor-count-badge">0</span>
+      </div>
+      <div id="sensor-list"></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+'use strict';
+
+// ─────────────────────────── State ──────────────────────────────────────────
+
+const state = {
+  sensors: {},     // sensor_id → twin dict
+  alerts: [],      // array, most-recent first
+  workOrders: {},  // wo_id → wo dict
+  hypotheses: [],  // last N
+  // Stats
+  fps: 0,
+  fpsBuffer: [],
+  totalLoss: 0,
+  auditOk: true,
+  auditEvents: 0,
+};
+
+// Pulse markers indexed by sensor_id
+const pulseMarkers = {};
+// Mapbox circle markers
+const sensorMarkers = {};
+// Current popup
+let activePopup = null;
+// WebSocket
+let ws = null;
+let wsReconnectTimer = null;
+let wsReconnectDelay = 1000;
+// Map instance
+let map = null;
+// Frame counter for FPS
+let frameCounter = 0;
+let lastFpsReset = Date.now();
+
+// ─────────────────────────── Token handling ──────────────────────────────────
+
+function getToken() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.has('token')) return params.get('token');
+  return localStorage.getItem('mapbox_token') || '';
+}
+
+function saveToken(token) {
+  localStorage.setItem('mapbox_token', token);
+}
+
+document.getElementById('token-submit').addEventListener('click', () => {
+  const token = document.getElementById('token-input').value.trim();
+  if (!token.startsWith('pk.')) {
+    alert('Token should start with pk.');
+    return;
+  }
+  saveToken(token);
+  initDashboard(token);
+});
+
+// ─────────────────────────── Init ───────────────────────────────────────────
+
+function initDashboard(token) {
+  document.getElementById('token-gate').style.display = 'none';
+  initMap(token);
+  initWebSocket();
+  initClock();
+  setInterval(updateStats, 1000);
+}
+
+const existingToken = getToken();
+if (existingToken) {
+  document.getElementById('token-gate').style.display = 'none';
+  // Defer init until DOM is fully ready
+  window.addEventListener('load', () => initDashboard(existingToken));
+}
+
+// ─────────────────────────── Clock ──────────────────────────────────────────
+
+function initClock() {
+  function tick() {
+    const now = new Date();
+    document.getElementById('time-display').textContent =
+      now.toUTCString().slice(17, 25) + ' UTC';
+  }
+  tick();
+  setInterval(tick, 1000);
+}
+
+// ─────────────────────────── Map ────────────────────────────────────────────
+
+// Beirut pipe network — Hamra and Verdun districts, 8+ realistic segments
+const PIPE_NETWORK = {
+  type: 'FeatureCollection',
+  features: [
+    // Hamra district — north–south trunk
+    { type: 'Feature', properties: { id: 'P-HAMRA-A12', rul_days: 400 },
+      geometry: { type: 'LineString', coordinates: [
+        [35.4810, 33.9000], [35.4820, 33.8985], [35.4828, 33.8978]
+      ]}},
+    // Hamra — east branch
+    { type: 'Feature', properties: { id: 'P-HAMRA-A13', rul_days: 210 },
+      geometry: { type: 'LineString', coordinates: [
+        [35.4828, 33.8978], [35.4840, 33.8982], [35.4845, 33.8985]
+      ]}},
+    // Hamra — west connector
+    { type: 'Feature', properties: { id: 'P-HAMRA-A14', rul_days: 75 },
+      geometry: { type: 'LineString', coordinates: [
+        [35.4810, 33.9000], [35.4800, 33.8990], [35.4795, 33.8970]
+      ]}},
+    // Hamra — south spur to Verdun
+    { type: 'Feature', properties: { id: 'P-HAMRA-VERDUN-L1', rul_days: 18 },
+      geometry: { type: 'LineString', coordinates: [
+        [35.4828, 33.8978], [35.4850, 33.8960], [35.4870, 33.8940], [35.4890, 33.8920]
+      ]}},
+    // Verdun — main arterial
+    { type: 'Feature', properties: { id: 'P-VERDUN-B07', rul_days: 320 },
+      geometry: { type: 'LineString', coordinates: [
+        [35.4890, 33.8920], [35.4900, 33.8910], [35.4910, 33.8840]
+      ]}},
+    // Verdun — east branch
+    { type: 'Feature', properties: { id: 'P-VERDUN-B08', rul_days: 155 },
+      geometry: { type: 'LineString', coordinates: [
+        [35.4910, 33.8840], [35.4930, 33.8850], [35.4950, 33.8860]
+      ]}},
+    // Cross-district connector
+    { type: 'Feature', properties: { id: 'P-CROSS-C01', rul_days: 95 },
+      geometry: { type: 'LineString', coordinates: [
+        [35.4845, 33.8985], [35.4870, 33.8985], [35.4900, 33.8970], [35.4920, 33.8940]
+      ]}},
+    // Achrafieh connection
+    { type: 'Feature', properties: { id: 'P-ACHRAFIEH-C02', rul_days: 440 },
+      geometry: { type: 'LineString', coordinates: [
+        [35.4920, 33.8940], [35.5000, 33.8900], [35.5100, 33.8890], [35.5230, 33.8890]
+      ]}},
+    // Hamra internal loop
+    { type: 'Feature', properties: { id: 'P-HAMRA-LOOP', rul_days: 28 },
+      geometry: { type: 'LineString', coordinates: [
+        [35.4795, 33.8970], [35.4800, 33.8950], [35.4810, 33.8940], [35.4828, 33.8950]
+      ]}},
+  ]
+};
+
+// Sensor locations (seeded from omni/main.py)
+const SENSORS_SEED = [
+  { sensor_id: 'S-HAMRA-001',      site_id: 'beirut/hamra',     lat: 33.8978, lon: 35.4828 },
+  { sensor_id: 'S-HAMRA-002',      site_id: 'beirut/hamra',     lat: 33.8985, lon: 35.4845 },
+  { sensor_id: 'S-VERDUN-001',     site_id: 'beirut/verdun',    lat: 33.8840, lon: 35.4910 },
+  { sensor_id: 'S-ACHRAFIEH-001',  site_id: 'beirut/achrafieh', lat: 33.8890, lon: 35.5230 },
+];
+
+function rulColor(rul_days) {
+  if (rul_days > 365) return '#3fb950';
+  if (rul_days > 90)  return '#d29922';
+  if (rul_days > 30)  return '#db6d28';
+  return '#f85149';
+}
+
+function initMap(token) {
+  mapboxgl.accessToken = token;
+
+  map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/dark-v11',
+    center: [35.5018, 33.8938],
+    zoom: 13,
+    attributionControl: false,
+  });
+
+  map.addControl(new mapboxgl.NavigationControl(), 'top-left');
+  map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+
+  map.on('load', () => {
+    // ── Pipe network ──────────────────────────────────────────────────────
+    // Add coloured layers per RUL band
+    const rulBands = [
+      { filter: ['>',  ['get', 'rul_days'], 365], color: '#3fb950', width: 3 },
+      { filter: ['all', ['>', ['get','rul_days'], 90], ['<=',['get','rul_days'],365]], color: '#d29922', width: 3 },
+      { filter: ['all', ['>', ['get','rul_days'], 30], ['<=',['get','rul_days'], 90]], color: '#db6d28', width: 4 },
+      { filter: ['<=', ['get', 'rul_days'], 30], color: '#f85149', width: 5 },
+    ];
+
+    map.addSource('pipes', { type: 'geojson', data: PIPE_NETWORK });
+
+    // Glow layer underneath
+    map.addLayer({
+      id: 'pipes-glow',
+      type: 'line',
+      source: 'pipes',
+      paint: {
+        'line-color': ['case',
+          ['>', ['get','rul_days'], 365], '#3fb950',
+          ['>', ['get','rul_days'], 90],  '#d29922',
+          ['>', ['get','rul_days'], 30],  '#db6d28',
+          '#f85149'
+        ],
+        'line-width': 10,
+        'line-blur': 8,
+        'line-opacity': 0.25,
+      }
+    });
+
+    map.addLayer({
+      id: 'pipes-main',
+      type: 'line',
+      source: 'pipes',
+      paint: {
+        'line-color': ['case',
+          ['>', ['get','rul_days'], 365], '#3fb950',
+          ['>', ['get','rul_days'], 90],  '#d29922',
+          ['>', ['get','rul_days'], 30],  '#db6d28',
+          '#f85149'
+        ],
+        'line-width': ['case',
+          ['<=', ['get','rul_days'], 30], 4,
+          3
+        ],
+        'line-opacity': 0.9,
+      }
+    });
+
+    // Pipe segment ID labels
+    map.addLayer({
+      id: 'pipes-labels',
+      type: 'symbol',
+      source: 'pipes',
+      layout: {
+        'symbol-placement': 'line-center',
+        'text-field': ['get', 'id'],
+        'text-size': 9,
+        'text-offset': [0, -0.8],
+      },
+      paint: {
+        'text-color': '#8b949e',
+        'text-halo-color': '#161b22',
+        'text-halo-width': 1,
+      }
+    });
+
+    // ── Hypothesis circles ────────────────────────────────────────────────
+    map.addSource('hypotheses', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: [] }
+    });
+    map.addLayer({
+      id: 'hyp-radius',
+      type: 'circle',
+      source: 'hypotheses',
+      paint: {
+        'circle-radius': ['interpolate', ['linear'], ['zoom'],
+          11, ['/', ['get','uncertainty_m'], 5],
+          15, ['/', ['get','uncertainty_m'], 1],
+        ],
+        'circle-color': 'rgba(188, 140, 255, 0.15)',
+        'circle-stroke-color': '#bc8cff',
+        'circle-stroke-width': 1.5,
+        'circle-stroke-opacity': 0.6,
+      }
+    });
+
+    // ── Seed sensor markers ───────────────────────────────────────────────
+    SENSORS_SEED.forEach(s => {
+      state.sensors[s.sensor_id] = {
+        ...s,
+        last_p_leak: 0,
+        battery_pct: 100,
+        temperature_c: 25,
+        is_healthy: true,
+        last_seen: null,
+        xgb_p: 0, rf_p: 0, cnn_p: null, ood: 0, rul: null,
+      };
+      addSensorMarker(s.sensor_id, s.lat, s.lon);
+    });
+
+    updateSensorList();
+  });
+
+  // Pipe segment click tooltip
+  map.on('click', 'pipes-main', (e) => {
+    const props = e.features[0].properties;
+    const color = rulColor(props.rul_days);
+    new mapboxgl.Popup({ closeButton: false, maxWidth: '260px' })
+      .setLngLat(e.lngLat)
+      .setHTML(`
+        <div class="popup-title">Pipe Segment</div>
+        <div class="popup-grid">
+          <span class="popup-key">ID</span><span class="popup-val">${props.id}</span>
+          <span class="popup-key">RUL</span>
+          <span class="popup-val" style="color:${color}">${props.rul_days} days</span>
+          <span class="popup-key">Risk</span>
+          <span class="popup-val" style="color:${color}">${props.rul_days>365?'Low':props.rul_days>90?'Moderate':props.rul_days>30?'Elevated':'Critical'}</span>
+        </div>`)
+      .addTo(map);
+  });
+  map.on('mouseenter', 'pipes-main', () => { map.getCanvas().style.cursor = 'pointer'; });
+  map.on('mouseleave', 'pipes-main', () => { map.getCanvas().style.cursor = ''; });
+}
+
+function addSensorMarker(sensor_id, lat, lon) {
+  const el = document.createElement('div');
+  el.className = 'sensor-marker';
+  el.style.cssText = `
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #58a6ff; border: 2px solid rgba(255,255,255,0.7);
+    cursor: pointer; transition: transform 0.2s;
+    box-shadow: 0 0 8px rgba(88,166,255,0.5);
+  `;
+  el.title = sensor_id;
+
+  const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
+    .setLngLat([lon, lat])
+    .addTo(map);
+
+  el.addEventListener('click', () => showSensorPopup(sensor_id, lat, lon));
+  sensorMarkers[sensor_id] = { marker, el };
+}
+
+function updateSensorMarker(sensor_id) {
+  const s = state.sensors[sensor_id];
+  if (!s || !sensorMarkers[sensor_id]) return;
+
+  const { el } = sensorMarkers[sensor_id];
+  const p = s.last_p_leak;
+  const size = 12 + Math.round(p * 10);  // 12–22px based on p_leak
+  let color, glow;
+
+  if (p >= 0.6) {
+    color = '#f85149'; glow = 'rgba(248,81,73,0.6)';
+  } else if (p >= 0.3) {
+    color = '#d29922'; glow = 'rgba(210,153,34,0.4)';
+  } else {
+    color = '#58a6ff'; glow = 'rgba(88,166,255,0.4)';
+  }
+
+  el.style.width  = `${size}px`;
+  el.style.height = `${size}px`;
+  el.style.background = color;
+  el.style.boxShadow = `0 0 ${size}px ${glow}`;
+
+  // Manage pulse animation for active leaks
+  if (p >= 0.6) {
+    if (!pulseMarkers[sensor_id]) {
+      addPulseMarker(sensor_id, s.lat, s.lon);
+    }
+  } else {
+    removePulseMarker(sensor_id);
+  }
+}
+
+function addPulseMarker(sensor_id, lat, lon) {
+  if (pulseMarkers[sensor_id]) return;
+  const el = document.createElement('div');
+  el.className = 'pulse-marker';
+  el.innerHTML = '<div class="pulse-marker-inner"></div>';
+  const m = new mapboxgl.Marker({ element: el, anchor: 'center' })
+    .setLngLat([lon, lat])
+    .addTo(map);
+  pulseMarkers[sensor_id] = m;
+}
+
+function removePulseMarker(sensor_id) {
+  if (pulseMarkers[sensor_id]) {
+    pulseMarkers[sensor_id].remove();
+    delete pulseMarkers[sensor_id];
+  }
+}
+
+function showSensorPopup(sensor_id, lat, lon) {
+  if (activePopup) activePopup.remove();
+  const s = state.sensors[sensor_id] || {};
+  const p = s.last_p_leak || 0;
+  const pColor = p >= 0.6 ? 'var(--red)' : p >= 0.3 ? 'var(--yellow)' : 'var(--green)';
+  const lastSeen = s.last_seen ? new Date(s.last_seen).toISOString().slice(11,19) : '—';
+
+  const oodColor = (s.ood || 0) > 1.0 ? 'var(--orange)' : 'var(--text0)';
+
+  activePopup = new mapboxgl.Popup({ closeButton: true, maxWidth: '280px' })
+    .setLngLat([lon, lat])
+    .setHTML(`
+      <div class="popup-title">${sensor_id}</div>
+      <div class="popup-grid">
+        <span class="popup-key">Site</span>       <span class="popup-val">${s.site_id || '—'}</span>
+        <span class="popup-key">P(leak)</span>    <span class="popup-val" style="color:${pColor}">${(p*100).toFixed(1)}%</span>
+        <span class="popup-key">XGB</span>        <span class="popup-val">${((s.xgb_p||0)*100).toFixed(1)}%</span>
+        <span class="popup-key">RF</span>         <span class="popup-val">${((s.rf_p||0)*100).toFixed(1)}%</span>
+        <span class="popup-key">CNN</span>        <span class="popup-val">${s.cnn_p!=null?((s.cnn_p)*100).toFixed(1)+'%':'—'}</span>
+        <span class="popup-key">OOD score</span> <span class="popup-val" style="color:${oodColor}">${(s.ood||0).toFixed(3)}</span>
+        <span class="popup-key">Battery</span>   <span class="popup-val">${(s.battery_pct||100).toFixed(0)}%</span>
+        <span class="popup-key">Temp</span>      <span class="popup-val">${(s.temperature_c||0).toFixed(1)} °C</span>
+        <span class="popup-key">Last seen</span> <span class="popup-val">${lastSeen}</span>
+        <span class="popup-key">Status</span>    <span class="popup-val" style="color:${s.is_healthy?'var(--green)':'var(--red)'}">${s.is_healthy?'Healthy':'Degraded'}</span>
+      </div>`)
+    .addTo(map);
+}
+
+function updateHypothesesLayer() {
+  if (!map || !map.getSource('hypotheses')) return;
+  const features = state.hypotheses.slice(-20).map(h => ({
+    type: 'Feature',
+    geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
+    properties: { uncertainty_m: h.uncertainty_m, pipe_segment_id: h.pipe_segment_id },
+  }));
+  map.getSource('hypotheses').setData({ type: 'FeatureCollection', features });
+}
+
+// ─────────────────────────── WebSocket ──────────────────────────────────────
+
+const WS_URL = 'ws://localhost:8765/ws';
+
+function initWebSocket() {
+  setWsStatus('connecting');
+  try {
+    ws = new WebSocket(WS_URL);
+  } catch (e) {
+    console.error('WS init error', e);
+    scheduleReconnect();
+    return;
+  }
+
+  ws.onopen = () => {
+    setWsStatus('connected');
+    wsReconnectDelay = 1000;
+    clearTimeout(wsReconnectTimer);
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      handleMessage(msg);
+    } catch (e) {
+      console.warn('WS parse error', e);
+    }
+  };
+
+  ws.onclose = (ev) => {
+    setWsStatus('disconnected');
+    if (ev.code !== 1000) scheduleReconnect();  // not clean close
+  };
+
+  ws.onerror = () => {
+    setWsStatus('disconnected');
+  };
+}
+
+function scheduleReconnect() {
+  clearTimeout(wsReconnectTimer);
+  wsReconnectTimer = setTimeout(() => {
+    wsReconnectDelay = Math.min(wsReconnectDelay * 2, 30000);
+    initWebSocket();
+  }, wsReconnectDelay);
+}
+
+document.getElementById('reconnect-btn').addEventListener('click', () => {
+  if (ws) { try { ws.close(); } catch (e) {} }
+  wsReconnectDelay = 1000;
+  clearTimeout(wsReconnectTimer);
+  initWebSocket();
+});
+
+function setWsStatus(status) {
+  const dot   = document.getElementById('ws-dot');
+  const label = document.getElementById('ws-label');
+  dot.className = status;
+  label.textContent = {
+    connected: 'Connected',
+    connecting: 'Connecting…',
+    disconnected: 'Disconnected',
+  }[status] || status;
+}
+
+// ─────────────────────────── Message handlers ────────────────────────────────
+
+function handleMessage(msg) {
+  switch (msg.type) {
+    case 'detection':   handleDetection(msg);   break;
+    case 'alert':       handleAlert(msg);        break;
+    case 'hypothesis':  handleHypothesis(msg);   break;
+    case 'telemetry':   handleTelemetry(msg);    break;
+    case 'heartbeat':   handleHeartbeat(msg);    break;
+    case 'sensor_twin': handleSensorTwin(msg);   break;
+    case 'work_order':  handleWorkOrder(msg);    break;
+    default:
+      console.debug('unhandled ws type', msg.type);
+  }
+}
+
+function handleDetection(msg) {
+  frameCounter++;
+  const sid = msg.sensor_id;
+  if (!state.sensors[sid]) {
+    state.sensors[sid] = { sensor_id: sid, site_id: msg.site_id || '?',
+                            lat: 0, lon: 0, is_healthy: true };
+  }
+  const s = state.sensors[sid];
+  s.last_p_leak     = msg.fused_p_leak  || 0;
+  s.xgb_p           = msg.xgb_p_leak   || 0;
+  s.rf_p            = msg.rf_p_leak     || 0;
+  s.cnn_p           = msg.cnn_p_leak    || null;
+  s.ood             = msg.ood_score     || 0;
+  s.last_seen       = msg.captured_at   || new Date().toISOString();
+
+  updateSensorMarker(sid);
+  updateSensorList();
+  updateStats();
+}
+
+function handleAlert(msg) {
+  // Replace or prepend
+  const idx = state.alerts.findIndex(a => a.alert_id === msg.alert_id);
+  if (idx >= 0) state.alerts[idx] = msg;
+  else           state.alerts.unshift(msg);
+  // Keep most recent 100
+  state.alerts = state.alerts.slice(0, 100);
+
+  renderAlerts();
+  updateStats();
+}
+
+function handleHypothesis(msg) {
+  state.hypotheses.push(msg);
+  if (state.hypotheses.length > 50) state.hypotheses.shift();
+  updateHypothesesLayer();
+}
+
+function handleTelemetry(msg) {
+  const sid = msg.sensor_id;
+  if (!state.sensors[sid]) return;
+  const s = state.sensors[sid];
+  s.battery_pct    = msg.battery_pct    || s.battery_pct;
+  s.temperature_c  = msg.temperature_c  || s.temperature_c;
+  s.is_healthy     = (s.battery_pct > 15) && (s.temperature_c < 70);
+  s.last_seen      = msg.captured_at    || s.last_seen;
+  updateSensorList();
+}
+
+function handleSensorTwin(msg) {
+  const sid = msg.sensor_id;
+  if (!state.sensors[sid]) {
+    state.sensors[sid] = { sensor_id: sid, last_p_leak: 0,
+                            battery_pct: 100, temperature_c: 25, is_healthy: true };
+  }
+  Object.assign(state.sensors[sid], msg);
+  updateSensorList();
+
+  // Ensure marker exists on map
+  if (map && map.loaded() && msg.lat && msg.lon && !sensorMarkers[sid]) {
+    addSensorMarker(sid, msg.lat, msg.lon);
+  }
+}
+
+function handleWorkOrder(msg) {
+  state.workOrders[msg.work_order_id] = msg;
+  renderWorkOrders();
+}
+
+function handleHeartbeat(msg) {
+  if (msg.audit_ok  !== undefined) state.auditOk     = msg.audit_ok;
+  if (msg.audit_events !== undefined) state.auditEvents = msg.audit_events;
+  updateStats();
+}
+
+// ─────────────────────────── Rendering ──────────────────────────────────────
+
+const SEV_ORDER = ['critical','high','medium','low','info'];
+
+function renderAlerts() {
+  const list = document.getElementById('alert-list');
+  const badge = document.getElementById('alert-count-badge');
+
+  const active = state.alerts.filter(a =>
+    ['NEW','ACKNOWLEDGED','DISPATCHED','ON_SITE'].includes(a.state)
+  );
+  badge.textContent = active.length;
+  badge.style.background = active.length > 0 ? '#5c1414' : '';
+  badge.style.color = active.length > 0 ? '#ff8080' : '';
+
+  list.innerHTML = state.alerts.slice(0, 30).map(a => {
+    const loss = a.estimated_loss_lph != null
+      ? `<span class="alert-loss">${a.estimated_loss_lph.toLocaleString()} L/h</span>`
+      : '';
+    const t = a.created_at ? new Date(a.created_at).toISOString().slice(11,19) : '';
+    return `
+      <div class="alert-item" onclick="flyToAlert(${a.lat || 0}, ${a.lon || 0})">
+        <div class="alert-item-header">
+          <span class="sev-badge sev-${a.severity}">${a.severity}</span>
+          <span class="alert-title">${escHtml(a.title)}</span>
+        </div>
+        <div class="alert-meta">
+          <span>${escHtml(a.state)}</span>
+          ${a.pipe_segment_id ? `<span>${escHtml(a.pipe_segment_id)}</span>` : ''}
+          ${loss}
+          ${a.assigned_crew_id ? `<span style="color:var(--accent)">${escHtml(a.assigned_crew_id)}</span>` : ''}
+          <span style="margin-left:auto;color:var(--text2)">${t}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function flyToAlert(lat, lon) {
+  if (!map || !lat || !lon) return;
+  map.flyTo({ center: [lon, lat], zoom: 15, duration: 1200 });
+}
+window.flyToAlert = flyToAlert;
+
+function renderWorkOrders() {
+  const list  = document.getElementById('wo-list');
+  const badge = document.getElementById('wo-count-badge');
+  const wos   = Object.values(state.workOrders)
+    .sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''))
+    .slice(0, 20);
+  badge.textContent = wos.length;
+  list.innerHTML = wos.map(wo => `
+    <div class="wo-item">
+      <span class="wo-status wo-${wo.status}">${wo.status.replace('_',' ')}</span>
+      <div class="wo-info">
+        <div class="wo-crew">${escHtml(wo.crew_id || '—')}</div>
+        <div class="wo-pipe">${escHtml(wo.notes || wo.alert_id || '—')}</div>
+      </div>
+      <span style="color:var(--text2);font-size:10px;white-space:nowrap">
+        ${wo.eta_minutes ? wo.eta_minutes+'m ETA' : ''}
+      </span>
+    </div>`).join('');
+}
+
+function updateSensorList() {
+  const list  = document.getElementById('sensor-list');
+  const badge = document.getElementById('sensor-count-badge');
+  const sensors = Object.values(state.sensors);
+  badge.textContent = sensors.length;
+
+  list.innerHTML = sensors.map(s => {
+    const p = s.last_p_leak || 0;
+    const pColor = p >= 0.6 ? 'var(--red)' : p >= 0.3 ? 'var(--yellow)' : 'var(--green)';
+    const dotColor = s.is_healthy ? (p >= 0.6 ? '#f85149' : '#3fb950') : '#d29922';
+    return `
+      <div class="sensor-row"
+           onclick="sensorRowClick('${s.sensor_id}', ${s.lat||0}, ${s.lon||0})">
+        <div class="sensor-dot" style="background:${dotColor}"></div>
+        <span class="sensor-id">${s.sensor_id}</span>
+        <span class="sensor-batt">${(s.battery_pct||100).toFixed(0)}%</span>
+        <span class="sensor-p" style="color:${pColor}">${(p*100).toFixed(0)}%</span>
+      </div>`;
+  }).join('');
+}
+
+function sensorRowClick(sensor_id, lat, lon) {
+  if (map && lat && lon) {
+    map.flyTo({ center: [lon, lat], zoom: 15.5, duration: 900 });
+    showSensorPopup(sensor_id, lat, lon);
+  }
+}
+window.sensorRowClick = sensorRowClick;
+
+function updateStats() {
+  // FPS
+  const now = Date.now();
+  const elapsed = (now - lastFpsReset) / 1000;
+  if (elapsed >= 1.0) {
+    state.fps = frameCounter / elapsed;
+    frameCounter = 0;
+    lastFpsReset = now;
+    document.getElementById('stat-fps').textContent = state.fps.toFixed(1);
+  }
+
+  // Active alerts
+  const activeAlerts = state.alerts.filter(a =>
+    ['NEW','ACKNOWLEDGED','DISPATCHED','ON_SITE'].includes(a.state)
+  );
+  const alertEl = document.getElementById('stat-alerts');
+  alertEl.textContent = activeAlerts.length;
+  alertEl.className = 'stat-value' + (activeAlerts.length > 0 ? ' alert' : ' ok');
+
+  // Sensors
+  const sensors = Object.values(state.sensors);
+  const healthy = sensors.filter(s => s.is_healthy !== false).length;
+  const sensEl = document.getElementById('stat-sensors');
+  sensEl.textContent = `${healthy} / ${sensors.length}`;
+  sensEl.className = 'stat-value' + (healthy === sensors.length ? ' ok' : ' warn');
+  document.getElementById('sensor-count-badge').textContent = sensors.length;
+
+  // Water loss
+  const loss = state.alerts
+    .filter(a => ['NEW','ACKNOWLEDGED','DISPATCHED','ON_SITE'].includes(a.state))
+    .reduce((sum, a) => sum + (a.estimated_loss_lph || 0), 0);
+  const lossEl = document.getElementById('stat-loss');
+  lossEl.textContent = `${loss.toLocaleString(undefined, {maximumFractionDigits:0})} L/h`;
+  lossEl.className = 'stat-value' + (loss > 0 ? ' alert' : ' ok');
+
+  // Audit chain
+  const auditEl = document.getElementById('stat-audit');
+  auditEl.textContent = state.auditOk
+    ? `OK · ${state.auditEvents} events`
+    : 'BROKEN';
+  auditEl.className = 'stat-value' + (state.auditOk ? ' ok' : ' alert');
+}
+
+// ─────────────────────────── Utilities ──────────────────────────────────────
+
+function escHtml(s) {
+  if (s == null) return '';
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Periodic refresh of panel if no WS messages (graceful degradation)
+setInterval(() => {
+  renderAlerts();
+  renderWorkOrders();
+  updateSensorList();
+}, 3000);
+
+// Initial renders
+renderAlerts();
+renderWorkOrders();
+updateSensorList();
+</script>
+</body>
+</html>

@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Omni-Sense | Aquatic Infrastructure Intelligence</title>
+    <style>
+        :root {
+            --bg: #000b14;
+            --accent: #00d2ff;
+            --accent-dim: rgba(0, 210, 255, 0.15);
+            --panel-bg: rgba(2, 15, 25, 0.9);
+            --text: #e0fbff;
+            --glow: 0 0 30px rgba(0, 210, 255, 0.4);
+            --ripple-color: rgba(0, 210, 255, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', system-ui, sans-serif;
+            overflow: hidden;
+            height: 100vh;
+        }
+
+        #bg-canvas {
+            position: fixed; top: 0; left: 0; z-index: -1;
+            background: linear-gradient(to bottom, #001520 0%, #000b14 100%);
+        }
+
+        #viewport {
+            width: 100vw; height: 100vh;
+            display: flex; align-items: center; justify-content: center;
+            padding-top: 40px; padding-left: 80px;
+            perspective: 2000px;
+        }
+
+        /* --- The Hydro Core --- */
+        .stage {
+            position: relative;
+            width: 0; height: 0;
+            transform-style: preserve-3d;
+            transition: transform 1.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+
+        .core-reservoir {
+            position: absolute;
+            width: 260px; height: 260px;
+            top: 0; left: 0;
+            transform: translate(-50%, -50%);
+            background: radial-gradient(circle, var(--accent-dim) 0%, transparent 80%);
+            border: 3px solid var(--accent);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: var(--glow), inset 0 0 50px rgba(0, 210, 255, 0.2);
+            animation: ripple-core 6s infinite ease-in-out;
+            cursor: pointer;
+            z-index: 1000;
+        }
+
+        .core-reservoir::before {
+            content: ''; position: absolute; width: 120%; height: 120%;
+            border: 1px solid var(--accent); border-radius: 50%;
+            opacity: 0.2; animation: wave-expand 4s infinite linear;
+        }
+
+        .core-reservoir h1 {
+            font-size: 14px; letter-spacing: 5px; text-transform: uppercase;
+            text-shadow: var(--glow); font-weight: 900; color: #fff;
+        }
+
+        /* --- Pressure Zones (Layers) --- */
+        .ripple-zone {
+            position: absolute;
+            top: 0; left: 0;
+            border: 1px solid var(--ripple-color);
+            border-radius: 50%;
+            transition: all 1s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; align-items: center; justify-content: center;
+            transform-style: preserve-3d;
+            animation: rotate-flow 100s infinite linear;
+        }
+
+        @keyframes rotate-flow {
+            from { transform: translate(-50%, -50%) rotate(0deg); }
+            to { transform: translate(-50%, -50%) rotate(360deg); }
+        }
+
+        .zone-management { width: 520px; height: 500px; border-width: 2px; }
+        .zone-intelligence { width: 880px; height: 850px; border-style: dashed; }
+        .zone-infrastructure { width: 1250px; height: 1200px; opacity: 0.6; }
+
+        /* --- Sensor Pods --- */
+        .node {
+            position: absolute;
+            transform-style: preserve-3d;
+            z-index: 100;
+        }
+
+        .pod {
+            width: 45px; height: 45px;
+            background: rgba(0, 40, 60, 0.6);
+            border: 2px solid var(--accent);
+            border-radius: 12px; /* Rounded square "pod" look */
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: var(--glow);
+            cursor: pointer;
+            transition: all 0.4s;
+            position: relative;
+            backdrop-filter: blur(5px);
+        }
+
+        .pod::after {
+            content: ''; position: absolute; bottom: -15px; width: 1px; height: 15px;
+            background: var(--accent); opacity: 0.5;
+        }
+
+        .pod:hover {
+            transform: scale(1.2) rotate(45deg);
+            background: var(--accent);
+            box-shadow: 0 0 50px var(--accent);
+        }
+
+        .pod:hover .label { transform: rotate(-45deg) translateY(20px); }
+
+        .label {
+            position: absolute;
+            top: 65px; left: 50%;
+            transform: translateX(-50%);
+            white-space: nowrap;
+            font-size: 9px; font-weight: 800; text-transform: uppercase;
+            letter-spacing: 2px;
+            color: #fff;
+            padding: 5px 12px;
+            background: rgba(0, 20, 30, 0.9);
+            border: 1px solid var(--accent-dim);
+            border-radius: 4px;
+            pointer-events: none;
+            transition: all 0.3s;
+        }
+
+        /* --- Zone Positioning --- */
+        .zone-management .node:nth-child(1) { top: 15%; left: 35%; }
+        .zone-management .node:nth-child(2) { top: 15%; left: 65%; }
+        .zone-management .node:nth-child(3) { top: 85%; left: 35%; }
+        .zone-management .node:nth-child(4) { top: 85%; left: 65%; }
+
+        .zone-intelligence .node:nth-child(1) { top: 5%; left: 50%; }
+        .zone-intelligence .node:nth-child(2) { top: 50%; left: 95%; }
+        .zone-intelligence .node:nth-child(3) { top: 95%; left: 50%; }
+        .zone-intelligence .node:nth-child(4) { top: 50%; left: 5%; }
+
+        .zone-infrastructure .node:nth-child(1) { top: 15%; left: 15%; }
+        .zone-infrastructure .node:nth-child(2) { top: 15%; left: 85%; }
+        .zone-infrastructure .node:nth-child(3) { top: 85%; left: 15%; }
+        .zone-infrastructure .node:nth-child(4) { top: 85%; left: 85%; }
+
+        /* --- Deep Submerge Overlay --- */
+        #dive-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at center, #001a2a 0%, #00050a 100%);
+            opacity: 0; pointer-events: none;
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 2000;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        #dive-overlay.active { opacity: 1; pointer-events: all; }
+
+        .dive-content {
+            text-align: center; max-width: 800px; width: 90%;
+        }
+
+        .bubble-container {
+            position: relative; height: 400px; width: 100%;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        .data-bubble {
+            position: absolute;
+            padding: 18px 30px;
+            border: 1px solid rgba(0, 210, 255, 0.5);
+            background: rgba(0, 30, 50, 0.4);
+            border-radius: 50px;
+            font-size: 11px; text-transform: uppercase; letter-spacing: 2px;
+            backdrop-filter: blur(10px);
+            animation: bubble-float 5s infinite ease-in-out;
+            color: #fff;
+            box-shadow: inset 0 0 20px rgba(0, 210, 255, 0.1);
+        }
+
+        @keyframes bubble-float {
+            0%, 100% { transform: translateY(0) scale(1); border-color: rgba(0, 210, 255, 0.5); }
+            50% { transform: translateY(-20px) scale(1.05); border-color: var(--accent); }
+        }
+
+        .btn-surface {
+            margin-top: 50px;
+            padding: 12px 40px; border: 1px solid var(--accent);
+            background: transparent; color: var(--accent);
+            text-transform: uppercase; letter-spacing: 4px; cursor: pointer;
+            transition: all 0.3s; font-size: 11px;
+        }
+        .btn-surface:hover { background: var(--accent); color: #000; box-shadow: var(--glow); }
+
+        /* --- Global Animations --- */
+        @keyframes ripple-core {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); box-shadow: var(--glow); }
+            50% { transform: translate(-50%, -50%) scale(1.03); box-shadow: 0 0 60px rgba(0, 210, 255, 0.6); }
+        }
+
+        @keyframes wave-expand {
+            0% { transform: scale(1); opacity: 0.5; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+
+        .sonar-ping {
+            position: fixed; width: 100px; height: 100px;
+            border: 2px solid var(--accent); border-radius: 50%;
+            pointer-events: none; opacity: 0;
+            animation: ping 4s infinite;
+        }
+        @keyframes ping {
+            0% { transform: scale(0.1); opacity: 0.8; }
+            100% { transform: scale(20); opacity: 0; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <canvas id="bg-canvas"></canvas>
+    <div class="sonar-ping" style="top: 50%; left: 50%;"></div>
+
+    <div id="viewport">
+        <div class="stage" id="main-stage">
+            
+            <!-- HYDRO CORE -->
+            <div class="core-reservoir" onclick="resetView()">
+                <h1>Omni-Sense</h1>
+            </div>
+
+            <!-- ZONE 1: CONTROL HORIZON -->
+            <div class="ripple-zone zone-management" style="animation-duration: 50s;">
+                <div class="node"><div class="pod" onclick="deepDive('ops')"></div><div class="label">Ops Console</div></div>
+                <div class="node"><div class="pod" onclick="deepDive('dispatch')"></div><div class="label">Smart Dispatch</div></div>
+                <div class="node"><div class="pod" onclick="deepDive('alerts')"></div><div class="label">Hydraulic Alerts</div></div>
+                <div class="node"><div class="pod" onclick="deepDive('tickets')"></div><div class="label">Field Service</div></div>
+            </div>
+
+            <!-- ZONE 2: NEURAL ACOUSTICS -->
+            <div class="ripple-zone zone-intelligence" style="animation-duration: 80s;">
+                <div class="node"><div class="pod" onclick="deepDive('cnn')"></div><div class="label">Deep Spectrogram</div></div>
+                <div class="node"><div class="pod" onclick="deepDive('xgb')"></div><div class="label">Physics-Informed ML</div></div>
+                <div class="node"><div class="pod" onclick="deepDive('ood')"></div><div class="label">Epistemic Safety</div></div>
+                <div class="node"><div class="pod" onclick="deepDive('fusion')"></div><div class="label">TDOA Localization</div></div>
+            </div>
+
+            <!-- ZONE 3: PHYSICAL FOUNDATION -->
+            <div class="ripple-zone zone-infrastructure" style="animation-duration: 120s;">
+                <div class="node"><div class="pod" onclick="deepDive('streams')"></div><div class="label">Durable Flow</div></div>
+                <div class="node"><div class="pod" onclick="deepDive('timescale')"></div><div class="label">Telemetry Lake</div></div>
+                <div class="node"><div class="pod" onclick="deepDive('mtls')"></div><div class="label">mTLS Security</div></div>
+                <div class="node"><div class="pod" onclick="deepDive('edge')"></div><div class="label">Acoustic Edge</div></div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- DEEP DIVE OVERLAY -->
+    <div id="dive-overlay">
+        <div class="dive-content">
+            <div style="font-size: 60px; margin-bottom: 20px;" id="d-icon">💧</div>
+            <h2 id="d-title" style="font-size: 40px; text-transform: uppercase; letter-spacing: 8px; color: #fff;">COMPONENT</h2>
+            <p id="d-desc" style="color: #8b949e; margin: 20px auto; font-size: 18px; max-width: 600px; line-height: 1.6;">Description of the smart water diagnostic module.</p>
+            
+            <div class="bubble-container" id="bubbles">
+                <!-- Data Bubbles -->
+            </div>
+
+            <button class="btn-surface" onclick="surface()">Surface to Overview</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Hydro Navigation ---
+        let depth = 0;
+        const stage = document.getElementById('main-stage');
+        
+        window.addEventListener('wheel', (e) => {
+            if (e.deltaY > 0 && depth < 1000) depth += 80;
+            if (e.deltaY < 0 && depth > -400) depth -= 80;
+            applyDepth();
+        });
+
+        function applyDepth() {
+            stage.style.transform = `rotateX(30deg) rotateY(-5deg) translateZ(${depth}px)`;
+        }
+        applyDepth();
+
+        // --- Dive Data ---
+        const componentInfo = {
+            cnn: {
+                title: "Deep Acoustic Intel",
+                icon: "🧠",
+                desc: "Treating acoustic vibrations as visual data. Our CNN identifies the unique spectral 'fingerprint' of leak turbulence before it surfaces.",
+                bubbles: ["STFT Analysis", "2D Convolution", "Feature Map v2", "99.1% Accuracy"]
+            },
+            streams: {
+                title: "Durable Data Flow",
+                icon: "🌊",
+                desc: "Engineered for zero-loss telemetry. Redis Streams act as a high-pressure buffer, ensuring every diagnostic frame is acknowledged and persisted.",
+                bubbles: ["Durable ACK", "PEL Monitoring", "Stream v2.0", "At-Least-Once"]
+            },
+            ops: {
+                title: "Hydraulic Twin",
+                icon: "🖥️",
+                desc: "A real-time digital mirror of the physical pipe network. Visualizing pressure transients and leak hypotheses on a live GIS dashboard.",
+                bubbles: ["Mapbox Engine", "Real-time Twin", "WebSocket Hub", "Low Latency"]
+            },
+            fusion: {
+                title: "Precision TDOA",
+                icon: "📍",
+                desc: "Sub-meter localization using Time Difference of Arrival. Cross-correlating sensor signals to find the exact point of failure.",
+                bubbles: ["Triangulation", "GCC-PHAT", "Wave Velocity", "GPS Sync"]
+            },
+            ood: {
+                title: "Safety Watchdog",
+                icon: "🛡️",
+                desc: "Out-of-Distribution awareness. Ensuring the AI only makes decisions in environments it truly understands, flagging novel noise as 'Unknown'.",
+                bubbles: ["Recon Error", "Autoencoder", "Ambience Gate", "Epistemic Trust"]
+            }
+        };
+
+        function deepDive(id) {
+            const info = componentInfo[id] || { title: id, icon: "💧", desc: "Advanced smart water infrastructure component.", bubbles: ["Sub-module A", "Sub-module B"] };
+            
+            document.getElementById('d-title').innerText = info.title;
+            document.getElementById('d-icon').innerText = info.icon;
+            document.getElementById('d-desc').innerText = info.desc;
+            
+            const bubbleHtml = info.bubbles.map((b, i) => {
+                const x = Math.cos((i / info.bubbles.length) * 6.28) * 320;
+                const y = Math.sin((i / info.bubbles.length) * 6.28) * 120;
+                return `<div class="data-bubble" style="left: calc(50% + ${x}px); top: calc(50% + ${y}px); animation-delay: ${i*0.4}s;">${b}</div>`;
+            }).join('');
+            
+            document.getElementById('bubbles').innerHTML = bubbleHtml;
+            document.getElementById('dive-overlay').classList.add('active');
+        }
+
+        function surface() {
+            document.getElementById('dive-overlay').classList.remove('active');
+        }
+
+        function resetView() {
+            depth = 0;
+            applyDepth();
+        }
+
+        // --- Aquatic Background ---
+        const canvas = document.getElementById('bg-canvas');
+        const ctx = canvas.getContext('2d');
+        function resize() { canvas.width = window.innerWidth; canvas.height = window.innerHeight; }
+        window.addEventListener('resize', resize);
+        resize();
+        
+        let bubbles = Array.from({length: 120}, () => ({
+            x: Math.random()*canvas.width, y: Math.random()*canvas.height, 
+            r: Math.random()*3, sp: Math.random()*0.4+0.2, o: Math.random()
+        }));
+
+        function animate() {
+            ctx.clearRect(0,0,canvas.width,canvas.height);
+            ctx.fillStyle = "#00d2ff";
+            bubbles.forEach(b => {
+                ctx.globalAlpha = b.o;
+                ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI*2); ctx.fill();
+                b.y -= b.sp; if(b.y < 0) { b.y = canvas.height; b.x = Math.random()*canvas.width; }
+            });
+            requestAnimationFrame(animate);
+        }
+        animate();
+
+    </script>
+</body>
+</html>

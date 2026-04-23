@@ -1,0 +1,562 @@
+[
+    {
+        "audio_file": "Branched_Circumferential_Crack_BR_CC_0.18_LPS_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Branched_Circumferential_Crack_BR_CC_0.18_LPS_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Branched_Circumferential_Crack_BR_CC_0.47_LPS_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Circumferential_Crack_BR_CC_0.47_LPS_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Circumferential_Crack_BR_CC_ND_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Circumferential_Crack_BR_CC_ND_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Circumferential_Crack_BR_CC_Transient_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Circumferential_Crack_BR_CC_Transient_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Gasket_Leak_BR_GL_0.18_LPS_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Branched_Gasket_Leak_BR_GL_0.18_LPS_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Branched_Gasket_Leak_BR_GL_0.47_LPS_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Gasket_Leak_BR_GL_0.47_LPS_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Gasket_Leak_BR_GL_ND_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Gasket_Leak_BR_GL_ND_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Gasket_Leak_BR_GL_Transient_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Gasket_Leak_BR_GL_Transient_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Longitudinal_Crack_BR_LC_0.18_LPS_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Branched_Longitudinal_Crack_BR_LC_0.18_LPS_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Branched_Longitudinal_Crack_BR_LC_0.47_LPS_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Longitudinal_Crack_BR_LC_0.47_LPS_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Longitudinal_Crack_BR_LC_ND_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Longitudinal_Crack_BR_LC_ND_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Longitudinal_Crack_BR_LC_Transient_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Longitudinal_Crack_BR_LC_Transient_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_No-leak_BR_NL_0.18_LPS_A1.wav",
+        "topology": "Branched",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Branched_No-leak_BR_NL_0.18_LPS_A2.wav",
+        "topology": "Branched",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Branched_No-leak_BR_NL_0.47_LPS_A1.wav",
+        "topology": "Branched",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_No-leak_BR_NL_0.47_LPS_A2.wav",
+        "topology": "Branched",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_No-leak_BR_NL_ND_A1.wav",
+        "topology": "Branched",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_No-leak_BR_NL_ND_A2.wav",
+        "topology": "Branched",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_No-leak_BR_NL_Transient_A1.wav",
+        "topology": "Branched",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_No-leak_BR_NL_Transient_A2.wav",
+        "topology": "Branched",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Orifice_Leak_BR_OL_0.18_LPS_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Branched_Orifice_Leak_BR_OL_0.18_LPS_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Branched_Orifice_Leak_BR_OL_0.47_LPS_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Orifice_Leak_BR_OL_0.47_LPS_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Orifice_Leak_BR_OL_ND_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Orifice_Leak_BR_OL_ND_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Orifice_Leak_BR_OL_Transient_A1.wav",
+        "topology": "Branched",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Branched_Orifice_Leak_BR_OL_Transient_A2.wav",
+        "topology": "Branched",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Circumferential_Crack_LO_CC_0.18_LPS_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Looped_Circumferential_Crack_LO_CC_0.18_LPS_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Looped_Circumferential_Crack_LO_CC_0.47_LPS_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Circumferential_Crack_LO_CC_0.47_LPS_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Circumferential_Crack_LO_CC_ND_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Circumferential_Crack_LO_CC_ND_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Circumferential_Crack_LO_CC_Transient_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Circumferential_Crack_LO_CC_Transient_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Circumferential Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Gasket_Leak_LO_GL_0.18_LPS_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Looped_Gasket_Leak_LO_GL_0.18_LPS_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Looped_Gasket_Leak_LO_GL_0.47_LPS_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Gasket_Leak_LO_GL_0.47_LPS_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Gasket_Leak_LO_GL_ND_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Gasket_Leak_LO_GL_ND_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Gasket_Leak_LO_GL_Transient_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Gasket_Leak_LO_GL_Transient_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Gasket Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Longitudinal_Crack_LO_LC_0.18_LPS_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Looped_Longitudinal_Crack_LO_LC_0.18_LPS_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Looped_Longitudinal_Crack_LO_LC_0.47_LPS_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Longitudinal_Crack_LO_LC_0.47_LPS_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Longitudinal_Crack_LO_LC_ND_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Longitudinal_Crack_LO_LC_ND_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Longitudinal_Crack_LO_LC_Transient_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Longitudinal_Crack_LO_LC_Transient_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Longitudinal Crack",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_No-leak_LO_NL_0.18_LPS_A1.wav",
+        "topology": "Looped",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Looped_No-leak_LO_NL_0.18_LPS_A2.wav",
+        "topology": "Looped",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Looped_No-leak_LO_NL_0.47_LPS_A1.wav",
+        "topology": "Looped",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_No-leak_LO_NL_0.47_LPS_A2.wav",
+        "topology": "Looped",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_No-leak_LO_NL_ND_A1.wav",
+        "topology": "Looped",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_No-leak_LO_NL_ND_A2.wav",
+        "topology": "Looped",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_No-leak_LO_NL_Transient_A1.wav",
+        "topology": "Looped",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_No-leak_LO_NL_Transient_A2.wav",
+        "topology": "Looped",
+        "fault_class": "No-leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Orifice_Leak_LO_OL_0.18_LPS_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Looped_Orifice_Leak_LO_OL_0.18_LPS_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "0.18"
+    },
+    {
+        "audio_file": "Looped_Orifice_Leak_LO_OL_0.47_LPS_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Orifice_Leak_LO_OL_0.47_LPS_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Orifice_Leak_LO_OL_ND_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Orifice_Leak_LO_OL_ND_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Orifice_Leak_LO_OL_Transient_A1.wav",
+        "topology": "Looped",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    },
+    {
+        "audio_file": "Looped_Orifice_Leak_LO_OL_Transient_A2.wav",
+        "topology": "Looped",
+        "fault_class": "Orifice Leak",
+        "original_sample_rate": 25600,
+        "flow_rate_extracted": "unknown"
+    }
+]

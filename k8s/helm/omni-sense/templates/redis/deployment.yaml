@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.redis.name }}
+  namespace: {{ include "omni-sense.namespace" . }}
+  labels:
+    {{- include "omni-sense.componentLabels" (dict "component" .Values.redis.name "context" .) | nindent 4 }}
+spec:
+  replicas: 1
+  # Recreate strategy ensures only one Redis instance runs at a time with RWO PVC
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "omni-sense.selectorLabels" (dict "component" .Values.redis.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "omni-sense.componentLabels" (dict "component" .Values.redis.name "context" .) | nindent 8 }}
+    spec:
+      securityContext:
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: {{ .Values.redis.image }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: redis
+              containerPort: {{ .Values.redis.port }}
+              protocol: TCP
+          args:
+            {{- toYaml .Values.redis.args | nindent 12 }}
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          {{- if .Values.redis.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: redis-data-pvc
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

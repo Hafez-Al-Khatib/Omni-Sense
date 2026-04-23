@@ -1,0 +1,56 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  # ── EEP (API Gateway) ──
+  - job_name: "eep"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["eep:8000"]
+        labels:
+          service: "eep"
+          role: "gateway"
+
+  # ── IEP2 (Classical ML Diagnostic Engine) ──
+  - job_name: "iep2"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["iep2:8002"]
+        labels:
+          service: "iep2"
+          role: "diagnostic"
+
+  # ── IEP3 (Dispatch & Active Learning) ──
+  - job_name: "iep3"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["iep3:8003"]
+        labels:
+          service: "iep3"
+          role: "dispatch"
+
+  # ── IEP4 (CNN spectrogram + Autoencoder OOD) ──
+  - job_name: "iep4"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["iep4:8004"]
+        labels:
+          service: "iep4"
+          role: "deep_classifier"
+
+  # ── Omni Platform (Streamlit ops console + event bus) ──
+  # Exposes a /metrics endpoint from the Streamlit sidecar; scrape
+  # is best-effort — omit-silently if omni-platform is not running.
+  - job_name: "omni-platform"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["omni-platform:8501"]
+        labels:
+          service: "omni-platform"
+          role: "intelligence"
+
+  # ── Prometheus self-monitoring ──
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]

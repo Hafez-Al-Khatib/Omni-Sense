@@ -1,0 +1,60 @@
+╔══════════════════════════════════════════════════════════════════╗
+║          OMNI-SENSE Water Leak Detection Platform v2             ║
+╚══════════════════════════════════════════════════════════════════╝
+
+Release name  : {{ .Release.Name }}
+Namespace     : {{ .Release.Namespace }}
+Chart version : {{ .Chart.Version }}
+App version   : {{ .Chart.AppVersion }}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+IMPORTANT — Before the platform becomes operational:
+
+1. Populate Twilio credentials in the Secret:
+
+   kubectl -n {{ .Release.Namespace }} create secret generic omni-sense-secret \
+     --from-literal=TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx \
+     --from-literal=TWILIO_AUTH_TOKEN=your_auth_token_here \
+     --from-literal=TWILIO_FROM_NUMBER=+1XXXXXXXXXX \
+     --from-literal=TWILIO_CREW_NUMBERS='{"crew-alpha":"+9613XXXXXX","crew-beta":"+9613YYYYYY"}' \
+     --from-literal=TIMESCALEDB_PASSWORD=changeme_strong_password \
+     --dry-run=client -o yaml | kubectl apply -f -
+
+   Without these credentials the platform runs in stub mode
+   (notifications are logged only, no SMS is sent).
+
+2. Install TLS certificates for the MQTT broker:
+
+   kubectl -n {{ .Release.Namespace }} create secret generic mqtt-tls \
+     --from-file=ca.crt=certs/ca.crt \
+     --from-file=server.crt=certs/server.crt \
+     --from-file=server.key=certs/server.key
+
+3. Verify all pods are running:
+
+   kubectl -n {{ .Release.Namespace }} get pods -w
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SERVICE ENDPOINTS:
+{{- if .Values.ingress.enabled }}
+  EEP API      : https://{{ .Values.ingress.hosts.api.host }}
+  Ops Console  : https://{{ .Values.ingress.hosts.console.host }}
+{{- else }}
+  EEP API      : kubectl port-forward svc/eep 8000:8000 -n {{ .Release.Namespace }}
+  Ops Console  : kubectl port-forward svc/omni-platform 8501:8501 -n {{ .Release.Namespace }}
+{{- end }}
+
+OBSERVABILITY:
+  Prometheus   : kubectl port-forward svc/prometheus-kube-prometheus-prometheus 9090:9090 -n monitoring
+  Grafana      : kubectl port-forward svc/grafana 3000:3000 -n monitoring
+
+QUICK HEALTH CHECK:
+  kubectl -n {{ .Release.Namespace }} get pods
+  kubectl -n {{ .Release.Namespace }} logs -l app.kubernetes.io/part-of=omni-sense --tail=50
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+For full deployment documentation see:
+  https://github.com/omni-sense/omni-sense/blob/main/docs/DEPLOYMENT.md

@@ -1,0 +1,92 @@
+{{- if .Values.serviceMonitor.enabled }}
+# ── Prometheus Operator ServiceMonitor for all Omni-Sense services ─────────────
+# Requires: kube-prometheus-stack or prometheus-operator installed in the cluster.
+# The prometheusLabel value must match the label your Prometheus CR uses to
+# select ServiceMonitors (default for kube-prometheus-stack: release=<release-name>).
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: omni-sense-services
+  namespace: {{ include "omni-sense.namespace" . }}
+  labels:
+    {{- include "omni-sense.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+    {{- range $k, $v := .Values.serviceMonitor.prometheusLabel }}
+    {{ $k }}: {{ $v }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ include "omni-sense.namespace" . }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/part-of: omni-sense
+  endpoints:
+    # ── EEP (External Endpoint — REST API Gateway) ─────────────────────────────
+    - port: http
+      path: {{ .Values.serviceMonitor.metricsPath }}
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_service_name]
+          targetLabel: service
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: "omni_.*|fastapi_.*|python_gc_.*|process_.*"
+          action: keep
+
+    # ── Omni Platform (ops console + pipeline) ─────────────────────────────────
+    - port: http
+      path: {{ .Values.serviceMonitor.metricsPath }}
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_service_name]
+          targetLabel: service
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+---
+# Separate ServiceMonitor for IEP services (may have longer scrape timeouts
+# due to ML inference latency)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: omni-sense-ieps
+  namespace: {{ include "omni-sense.namespace" . }}
+  labels:
+    {{- include "omni-sense.labels" . | nindent 4 }}
+    app.kubernetes.io/component: monitoring
+    {{- range $k, $v := .Values.serviceMonitor.prometheusLabel }}
+    {{ $k }}: {{ $v }}
+    {{- end }}
+spec:
+  namespaceSelector:
+    matchNames:
+      - {{ include "omni-sense.namespace" . }}
+  selector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          # iep1 removed — YAMNet microservice decommissioned,
+          # DSP feature extraction moved into EEP.
+          - iep2
+          - iep3
+          - iep4
+  endpoints:
+    - port: http
+      path: {{ .Values.serviceMonitor.metricsPath }}
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: 15s
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_service_name]
+          targetLabel: service
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: "omni_.*|fastapi_.*|python_gc_.*|process_.*|iep_.*"
+          action: keep
+{{- end }}

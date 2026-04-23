@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Omni-Sense | System Architecture Explorer</title>
+<link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;700&family=Inter:wght@200;400;700;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000810;
+    --border: rgba(0,210,255,0.25);
+    --text: #c8dde8;
+    --text-dim: #5a8aa9;
+    --accent: #00d2ff;
+    --glow: rgba(0,210,255,0.5);
+    --success: #00ff88;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: 'Inter', sans-serif;
+    width:100vw; height:100vh; overflow:hidden; user-select:none;
+  }
+
+  canvas#bg { position:fixed; inset:0; pointer-events:none; z-index:0; }
+
+  #scan-line {
+    position:fixed; inset:0;
+    background: repeating-linear-gradient(0deg,
+      rgba(0,0,0,0.08) 0px, rgba(0,0,0,0.08) 1px,
+      transparent 1px, transparent 3px);
+    pointer-events:none; z-index:900; opacity:0.35;
+  }
+
+  /* ── HUD Header ────────────────────────────────────── */
+  #hud {
+    position:fixed; top:0; left:0; right:0; height:72px;
+    padding:0 36px; display:flex; align-items:center; justify-content:space-between;
+    z-index:2000; border-bottom:1px solid var(--border);
+    background:rgba(0,8,16,0.85); backdrop-filter:blur(20px);
+  }
+  .hud-brand h1 { font-size:13px; font-weight:900; letter-spacing:0.5em; color:var(--accent); }
+  .hud-brand p  { font-size:8px; letter-spacing:0.2em; color:var(--text-dim); text-transform:uppercase; margin-top:3px; }
+
+  #breadcrumb { display:flex; align-items:center; gap:12px; font-size:10px; font-weight:700; letter-spacing:0.1em; color:var(--text-dim); }
+  #breadcrumb span { cursor:pointer; transition:0.2s; padding-bottom:2px; }
+  #breadcrumb span:hover { color:var(--accent); }
+  #breadcrumb .bc-active { color:#fff; border-bottom:2px solid var(--accent); }
+  #breadcrumb .bc-sep { opacity:0.25; pointer-events:none; }
+
+  .hud-metrics { display:flex; gap:36px; }
+  .met { display:flex; flex-direction:column; align-items:flex-end; }
+  .met-val   { font-family:'Fira Code',monospace; font-size:12px; color:var(--success); }
+  .met-label { font-size:8px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.1em; }
+
+  /* ── Layer system ──────────────────────────────────── */
+  .layer {
+    position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
+    z-index:10; transition: opacity 0.5s ease, transform 0.5s cubic-bezier(0.19,1,0.22,1);
+  }
+  .layer.hidden { opacity:0; transform:scale(1.12); pointer-events:none; }
+  .layer.prev   { opacity:0; transform:scale(0.88);  pointer-events:none; }
+
+  /* ── Layer 0 · Hub ─────────────────────────────────── */
+  #layer0 { perspective:1800px; }
+
+  .hub-wrap { position:relative; width:240px; height:240px; }
+  .hub-ring {
+    position:absolute; border-radius:50%; border:1px solid var(--border);
+    animation:spin 25s linear infinite;
+  }
+  .hub-ring:nth-child(1) { inset:-44px; }
+  .hub-ring:nth-child(2) { inset:-80px; border-style:dashed; animation-duration:38s; animation-direction:reverse; opacity:0.45; }
+  .hub-ring:nth-child(3) { inset:-128px; border-width:2px; border-color:rgba(0,210,255,0.08); animation-duration:65s; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  .hub-core {
+    width:100%; height:100%; border-radius:50%;
+    background:radial-gradient(circle at 30% 30%, #004860, #000912);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    border:1.5px solid var(--accent); box-shadow:0 0 80px rgba(0,210,255,0.18);
+  }
+  .hub-core .core-label { font-size:16px; font-weight:900; letter-spacing:0.25em; color:#fff; }
+  .hub-core .core-sub   { font-size:9px; letter-spacing:0.15em; color:var(--accent); margin-top:4px; }
+
+  #nodes-wrap { position:absolute; inset:0; pointer-events:none; }
+
+  .domain-node {
+    position:absolute; width:136px; height:154px; pointer-events:all;
+    clip-path:polygon(50% 0%,100% 25%,100% 75%,50% 100%,0% 75%,0% 25%);
+    background:rgba(255,255,255,0.03); border:none;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    cursor:pointer; transition:0.45s cubic-bezier(0.19,1,0.22,1);
+    backdrop-filter:blur(8px); transform:translate(-50%,-50%);
+  }
+  .domain-node .d-icon  { font-size:28px; margin-bottom:8px; transition:0.3s; }
+  .domain-node .d-label { font-size:9px; font-weight:900; letter-spacing:0.14em; text-transform:uppercase; text-align:center; padding:0 8px; line-height:1.4; }
+
+  /* ── Layer 1 · Domain ──────────────────────────────── */
+  #layer1 { align-items:stretch; }
+
+  .dom-sidebar {
+    position:absolute; left:0; top:72px; bottom:0; width:420px;
+    background:linear-gradient(to right, rgba(0,8,16,0.97), transparent);
+    padding:80px 56px; display:flex; flex-direction:column; justify-content:space-between;
+    border-right:1px solid var(--border);
+  }
+  .dom-sidebar h2 { font-size:56px; font-weight:200; line-height:0.9; margin-bottom:28px; letter-spacing:-0.03em; }
+  .dom-sidebar p  { font-size:15px; color:var(--text-dim); line-height:1.8; font-weight:300; }
+
+  .orbs-area { position:absolute; left:420px; right:0; top:72px; bottom:0; display:flex; align-items:center; justify-content:center; }
+
+  .service-orb {
+    position:absolute; width:200px; height:200px;
+    background:radial-gradient(circle at center, #011d30, #000810);
+    border:1px solid var(--border); border-radius:50%;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    cursor:pointer; transition:0.5s cubic-bezier(0.19,1,0.22,1);
+    box-shadow:inset 0 0 28px rgba(0,0,0,0.7);
+    transform:translate(-50%,-50%);
+  }
+  .service-orb .orb-icon { font-size:34px; margin-bottom:10px; }
+  .service-orb .orb-name { font-size:10px; font-weight:900; letter-spacing:0.18em; text-transform:uppercase; text-align:center; padding:0 12px; }
+  .service-orb .orb-st   { font-size:8px; font-weight:700; letter-spacing:0.1em; margin-top:9px; padding:3px 10px; border-radius:20px; display:inline-block; }
+
+  /* ── Layer 2 · Service ─────────────────────────────── */
+  #layer2 { padding:100px 72px 64px; display:block; overflow-y:auto; background:rgba(0,8,16,0.98); align-items:flex-start; }
+  #layer2::-webkit-scrollbar { width:4px; }
+  #layer2::-webkit-scrollbar-thumb { background:var(--border); border-radius:4px; }
+
+  .detail-head { margin-bottom:72px; border-left:5px solid; padding-left:36px; max-width:1200px; margin-left:auto; margin-right:auto; }
+  .detail-head h3 { font-size:56px; font-weight:200; color:#fff; margin-bottom:16px; }
+  .detail-head p  { font-size:17px; color:var(--text-dim); font-weight:300; line-height:1.8; max-width:820px; }
+
+  .algo-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(500px,1fr)); gap:40px; max-width:1200px; margin:0 auto; }
+  .algo-card {
+    background:rgba(255,255,255,0.02); border:1px solid var(--border);
+    padding:40px; border-radius:8px; transition:0.35s;
+  }
+  .algo-card:hover { border-color:var(--accent); background:rgba(0,210,255,0.03); transform:translateY(-4px); }
+  .algo-card h4 { font-size:20px; color:var(--accent); margin-bottom:16px; letter-spacing:0.05em; }
+  .algo-card p  { font-size:14px; color:var(--text-dim); line-height:1.75; margin-bottom:20px; }
+  .algo-card pre {
+    background:#000; padding:20px; border-radius:10px;
+    font-family:'Fira Code',monospace; font-size:12px; color:#4ade80;
+    border:1px solid rgba(255,255,255,0.05);
+    white-space:pre-wrap; word-break:break-all;
+    line-height:1.6;
+  }
+  .algo-tag { display:inline-block; font-size:9px; font-weight:700; padding:3px 10px; border-radius:14px; margin-top:14px; letter-spacing:0.07em; }
+
+  /* ── Status badge colors ───────────────────────────── */
+  .st-online  { background:rgba(0,255,136,0.12);  color:#00ff88; border:1px solid rgba(0,255,136,0.28); }
+  .st-retrain { background:rgba(255,215,0,0.12);   color:#ffd700; border:1px solid rgba(255,215,0,0.28); }
+  .st-stub    { background:rgba(255,71,87,0.12);    color:#ff4757; border:1px solid rgba(255,71,87,0.28); }
+  .st-planned { background:rgba(90,138,169,0.12);   color:#5a8aa9; border:1px solid rgba(90,138,169,0.28); }
+  .st-testing { background:rgba(0,210,255,0.12);    color:#00d2ff; border:1px solid rgba(0,210,255,0.28); }
+
+  /* ── Buttons ───────────────────────────────────────── */
+  .btn-back {
+    background:transparent; border:1px solid var(--accent); color:var(--accent);
+    padding:12px 36px; cursor:pointer; font-size:11px; font-weight:900;
+    letter-spacing:0.3em; text-transform:uppercase; transition:0.3s; margin-top:56px;
+    display:inline-block;
+  }
+  .btn-back:hover { background:var(--accent); color:#000; box-shadow:0 0 28px var(--accent); }
+
+  /* ── Ripple ────────────────────────────────────────── */
+  .ripple {
+    position:fixed; border-radius:50%; transform:translate(-50%,-50%) scale(0);
+    background:rgba(0,210,255,0.12); pointer-events:none; z-index:9999;
+    width:60px; height:60px;
+    animation:ripple-burst 0.9s cubic-bezier(0,0,0.2,1) forwards;
+  }
+  @keyframes ripple-burst { to { transform:translate(-50%,-50%) scale(8); opacity:0; } }
+</style>
+</head>
+<body>
+
+<canvas id="bg"></canvas>
+<div id="scan-line"></div>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="hud-brand">
+    <h1>OMNI-SENSE</h1>
+    <p>Acoustic Infrastructure Intelligence · v2.0 Deep</p>
+  </div>
+
+  <div id="breadcrumb">
+    <span onclick="goHome()">NETWORK_ROOT</span>
+    <span id="bc-domain" class="bc-sep" style="display:none">›</span>
+    <span id="bc-domain-label" style="display:none" onclick="goBackToDomain()"></span>
+    <span id="bc-svc-sep" class="bc-sep" style="display:none">›</span>
+    <span id="bc-svc-label" class="bc-active" style="display:none"></span>
+  </div>
+
+  <div class="hud-metrics">
+    <div class="met"><span class="met-val" id="met-risk">0.000%</span><span class="met-label">Network Leak Risk</span></div>
+    <div class="met"><span class="met-val" id="met-lat">12.4ms</span><span class="met-label">Edge Inference</span></div>
+    <div class="met"><span class="met-val" id="met-clock">00:00:00</span><span class="met-label">System Time UTC</span></div>
+  </div>
+</div>
+
+<!-- Layer 0: Hub -->
+<div class="layer" id="layer0">
+  <div class="hub-wrap">
+    <div class="hub-ring"></div>
+    <div class="hub-ring"></div>
+    <div class="hub-ring"></div>
+    <div class="hub-core">
+      <span class="core-label">CORE</span>
+      <span class="core-sub">ACTIVE_NODE</span>
+    </div>
+    <div id="nodes-wrap"></div>
+  </div>
+</div>
+
+<!-- Layer 1: Domain -->
+<div class="layer hidden" id="layer1">
+  <div class="dom-sidebar">
+    <div>
+      <h2 id="dom-title"></h2>
+      <p id="dom-desc"></p>
+    </div>
+    <button class="btn-back" onclick="goHome()">Exit_Explorer</button>
+  </div>
+  <div class="orbs-area">
+    <div id="orbs-container" style="position:relative;width:100%;height:100%;"></div>
+  </div>
+</div>
+
+<!-- Layer 2: Service -->
+<div class="layer hidden" id="layer2">
+  <div class="detail-head" id="detail-head">
+    <h3 id="svc-title"></h3>
+    <p id="svc-desc"></p>
+  </div>
+  <div class="algo-grid" id="algo-grid"></div>
+  <div style="max-width:1200px;margin:0 auto;">
+    <button class="btn-back" onclick="goBackToDomain()">Return_to_Domain</button>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════════════
+//  STATUS BADGE MAP
+// ════════════════════════════════════════════════════════
+const ST = {
+  ONLINE:  { label:"● ONLINE",        cls:"st-online"  },
+  RETRAIN: { label:"⚠ NEEDS_RETRAIN", cls:"st-retrain" },
+  STUB:    { label:"✕ STUB",           cls:"st-stub"    },
+  PLANNED: { label:"○ PLANNED",        cls:"st-planned" },
+  TESTING: { label:"◎ TESTING",        cls:"st-testing" },
+};
+
+// ════════════════════════════════════════════════════════
+//  DOMAIN DATA
+// ════════════════════════════════════════════════════════
+const DOMAINS = [
+
+  // ── 1. Leak Detection ──────────────────────────────────────────────────
+  {
+    id:"leak", label:"Leak Detection", icon:"💧", color:"#00d2ff",
+    desc:"Structure-borne acoustic analysis — from raw PCM frames captured on ADXL345 accelerometers to leak probability, TDOA geo-location, and estimated flow rate in real time.",
+    services:[
+      { id:"sigqa", name:"Signal QA", icon:"📡", status:"ONLINE",
+        desc:"Validates raw PCM frames before feature extraction. Rejects clipped, noisy, or under-length captures at the edge before they pollute the inference pipeline.",
+        algos:[
+          { name:"Clip Detector", text:"Flags frames where |amplitude| > 0.97 × full-scale on > 0.5 % of samples. Auto-rejects bursts caused by hydraulic transients during calibration.",
+            code:"clip_ratio = np.mean(np.abs(pcm) > 0.97)\nif clip_ratio > 0.005: reject()" },
+          { name:"SNR Estimator", text:"Welch-method PSD signal-vs-noise ratio. Accepts frames ≥ 12 dB SNR — below this threshold leak signatures are masked by pipe flow noise.",
+            code:"S = np.var(signal); N = np.var(noise)\nSNR_dB = 10 * log10(S / N)\nassert SNR_dB >= 12" },
+          { name:"Length Guard", text:"Requires minimum 512 samples (32 ms at 16 kHz) to support all STFT windows in the DSP extractor without zero-padding artifacts.",
+            code:"if len(pcm) < 512:\n    raise ValueError('PCM too short')" },
+        ]
+      },
+      { id:"dsp", name:"DSP Features", icon:"🔬", status:"ONLINE",
+        desc:"Pure-NumPy extraction of the 39-dimensional physics feature vector. No scipy/librosa — deployable on constrained edge hardware (RPi 5, Jetson Nano).",
+        algos:[
+          { name:"RMS + ZCR", text:"Per-frame root-mean-square energy and zero-crossing rate → 4 features (mean + std). Captures amplitude envelope and fundamental periodicity of active leaks.",
+            code:"rms = sqrt(mean(frames**2, axis=1))\nzcr = mean(|diff(sign(frames))|/2, axis=1)" },
+          { name:"Spectral Shape", text:"Centroid (weighted mean freq), rolloff (85th-pct cumulative energy), flatness (geometric/arithmetic ratio) → 6 features. Discriminates broadband hiss from sinusoidal pipe hum.",
+            code:"cent = (mag @ freqs) / (mag.sum(1) + ε)\nflat = exp(mean(log(mag+ε))) / mean(mag)" },
+          { name:"MFCCs × 13", text:"Mel-frequency cepstral coefficients 0–12 via HTK triangular filterbank + DCT-II. Mean + std across frames → 26 features. Captures pipe material timbre.",
+            code:"fbank = mel_filterbank(sr, N_FFT, 40)\nlog_mel = log((mag**2) @ fbank.T)\nmfccs = dct2(log_mel)[:, :13]" },
+          { name:"Crest / Kurtosis / Skewness", text:"Three whole-signal statistics: crest factor (peak/RMS), excess kurtosis (> 3 indicates impulsive transients), skewness. Adds 3 features distinguishing burst from steady leak.",
+            code:"kurt = mean(((x-μ)/σ)**4) - 3\nskew = mean(((x-μ)/σ)**3)\ncrest = max|x| / rms" },
+        ]
+      },
+      { id:"mlclf", name:"ML Classifier", icon:"🧠", status:"RETRAIN",
+        desc:"XGBoost + Random Forest ensemble on the 39-d DSP vector. ONNX-only inference (no joblib/pickle — eliminates RCE vector). Needs retraining on matched DSP features.",
+        algos:[
+          { name:"XGBoost Head", text:"Gradient-boosted trees, max_depth=6, n_estimators=300, lr=0.05. Exported to ONNX via skl2onnx. ⚠ Current models were trained on 1024-d YAMNet embeddings — retrain required.", tag:"⚠ NEEDS_RETRAIN",
+            code:"# scripts/train_omni_heads.py\nxgb.fit(X_dsp_train, y)\nconvert_sklearn(xgb) → omni/models/xgb.onnx" },
+          { name:"Random Forest Head", text:"n_estimators=200, max_features='sqrt'. Epistemic uncertainty via prediction variance across trees. Deep-SVDD OOD detector gates inference.",
+            code:"p_xgb = session_xgb.run(feat)[0]\np_rf  = session_rf.run(feat)[0]\nfused = 0.6*p_xgb + 0.4*p_rf" },
+          { name:"Physics Stub Fallback", text:"When ONNX models are absent or OOD score exceeds threshold, falls back to a deterministic physics stub. Fires NEEDS_RETRAIN alert to MLOps pipeline.", tag:"🔴 ACTIVE FALLBACK",
+            code:"if ood_score > OOD_THRESHOLD:\n    p_leak = rms / rms_ambient\n    uncertainty = 0.6" },
+        ]
+      },
+      { id:"tdoa", name:"TDOA Localiser", icon:"📍", status:"ONLINE",
+        desc:"GCC-PHAT cross-correlation between sensor pairs localises the leak source to within ~0.2 m on a known pipe segment — matching commercial Gutermann CORRELUX+ accuracy.",
+        algos:[
+          { name:"GCC-PHAT", text:"Generalised cross-correlation with phase transform whitening. Suppresses spectral amplitude bias so the peak reflects pure propagation time delay, not energy.",
+            code:"Fa = rfft(pcm_a); Fb = rfft(pcm_b)\nG  = Fb * conj(Fa)\nG /= (|G| + ε)    # PHAT whitening\nΔt = argmax(irfft(G)) / sr" },
+          { name:"Position Formula", text:"Given sensor separation L (m) and wave speed v (m/s) for the pipe material, the leak distance from sensor A is computed analytically.",
+            code:"x_from_A = (L - v * Δt) / 2\n# Cast iron: v ≈ 1350 m/s\n# PVC:        v ≈  400 m/s\n# σ ≈ v/(2×sr) ≈ 0.04 m" },
+          { name:"Coherence Guard", text:"Planned: reject TDOA when magnitude-squared coherence Cxy < 0.5 in 30–500 Hz band. Prevents false localisation on uncorrelated noise frames.", tag:"📋 PLANNED v2.1",
+            code:"Cxy = |Sxy|**2 / (Sxx * Syy)\nif max(Cxy[30Hz:500Hz]) < 0.5:\n    reject_tdoa()" },
+        ]
+      },
+    ]
+  },
+
+  // ── 2. Pipe Health ─────────────────────────────────────────────────────
+  {
+    id:"health", label:"Pipe Health", icon:"🩺", color:"#00ff88",
+    desc:"Predictive asset lifecycle management — remaining-useful-life forecasting and resonance monitoring to schedule proactive maintenance before catastrophic failure.",
+    services:[
+      { id:"rul", name:"RUL Model", icon:"⏱", status:"ONLINE",
+        desc:"Weibull AFT (accelerated failure time) survival model predicts months to failure from six operational covariates. Pure-NumPy L-BFGS-B MLE — no heavy statistical dependencies.",
+        algos:[
+          { name:"Weibull AFT", text:"Log-linear survival model: log T = μ + βᵀx + σε. Fitted on historical failure records via maximum likelihood. Six covariates: pressure, age, material, depth, prior leaks, soil corrosivity.",
+            code:"log_T = μ + β @ x + σ * ε\n# x: [pressure_bar, age_yr,\n#      material, depth_m,\n#      prior_leaks, soil_idx]" },
+          { name:"80 % Bootstrap CI", text:"200-resample bootstrap over training failures. Wide CI (> 24-month span) triggers REVIEW_REQUIRED flag — avoids unnecessary work orders on uncertain predictions.",
+            code:"ci_lo, ci_hi = np.percentile(\n    bootstrap_preds, [10, 90])" },
+        ]
+      },
+      { id:"resonance", name:"Resonance Monitor", icon:"〰️", status:"STUB",
+        desc:"Tracks natural frequency shifts in the pipe resonance spectrum. Wall thinning and joint loosening lower resonant frequency before visual inspection can detect it.",
+        algos:[
+          { name:"FFT Peak Tracker", text:"Running FFT on 2-second captures extracts top-3 spectral peaks. Downward drift > 5 Hz/month triggers a structural health alert.", tag:"🔴 STUB",
+            code:"peaks = argsort(|FFT(pcm)|)[-3:]\ndrift = peaks_now - peaks_30d" },
+          { name:"Structural Health Index", text:"SHI = (1 − Δf/f₀) × (1 − corrosion_proxy). Planned integration with RUL covariates in v2.1 to feed the capital replacement planner.", tag:"📋 PLANNED",
+            code:"SHI = (1 - df/f0) * (1 - corr)\n# f0: baseline at commissioning" },
+        ]
+      },
+    ]
+  },
+
+  // ── 3. Smart Alerting ──────────────────────────────────────────────────
+  {
+    id:"alert", label:"Smart Alerting", icon:"🚨", color:"#ff6b6b",
+    desc:"Context-aware severity scoring, intelligent crew routing, and CMMS-integrated field dispatch. Turns a leak probability into a dispatched work order in under 90 seconds.",
+    services:[
+      { id:"severity", name:"Severity Engine", icon:"⚡", status:"ONLINE",
+        desc:"Combines leak probability, estimated flow rate, pipe criticality, and NRW impact into a single severity score to prioritise field response across the DMA.",
+        algos:[
+          { name:"Composite Score", text:"score = p_leak × flow_lps × criticality × (1 + NRW_multiplier). Criticality loaded from GIS attributes: hospital/school proximity, DMA pressure zone, historical burst frequency.",
+            code:"score = (p_leak * flow_lps\n         * pipe_crit\n         * (1 + nrw_mult))\nlevel = ('CRITICAL' if score>8\n    else 'HIGH' if score>4 else 'MEDIUM')" },
+          { name:"6-Minute Debounce", text:"Consecutive alerts on the same pipe segment within 6 minutes are suppressed. Prevents alert storms during nocturnal pressure cycling when transients are frequent.",
+            code:"_MIN_GAP = timedelta(seconds=360)\nif now - last_alert < _MIN_GAP:\n    return  # debounced" },
+        ]
+      },
+      { id:"dispatch", name:"Field Dispatch", icon:"🚛", status:"ONLINE",
+        desc:"Auto-generates structured work orders from spatial hypotheses and routes them to nearest available crew via CMMS. Average end-to-end dispatch time: 85 seconds.",
+        algos:[
+          { name:"Work Order Generator", text:"Auto-fills CMMS work order: GPS coordinates, pipe segment ID, estimated flow (L/s), confidence %, GIS access notes, and a QR code to the live sensor feed.",
+            code:"wo = WorkOrder(\n  lat=h.lat, lon=h.lon,\n  pipe_id=h.pipe_segment_id,\n  flow_lps=h.estimated_flow_lps,\n  confidence=h.confidence\n)" },
+          { name:"Nearest-Crew Router", text:"Haversine nearest-crew assignment from active field team GPS positions. Falls back to static roster if real-time GPS is unavailable. ETA estimated at 35 km/h average urban speed.",
+            code:"crew = min(crews, key=lambda c:\n  haversine(c.lat, c.lon,\n            wo.lat, wo.lon))" },
+        ]
+      },
+    ]
+  },
+
+  // ── 4. Water Loss ──────────────────────────────────────────────────────
+  {
+    id:"water", label:"Water Loss", icon:"🌊", color:"#ffd700",
+    desc:"SCADA integration, DMA water balance accounting and ILI reporting for OFWAT/utility regulatory compliance. Turns sensor data into board-level NRW dashboards.",
+    services:[
+      { id:"scada", name:"SCADA Gateway", icon:"🔌", status:"TESTING",
+        desc:"Bidirectional bridge between the Omni-Sense bus and SCADA/LIMS systems via Modbus TCP and OPC-UA. Survives network partitions with a 5-minute write-ahead buffer.",
+        algos:[
+          { name:"Modbus TCP Bridge", text:"Maps leak hypotheses to Modbus coil/register writes. Supports both master (poll) and slave (push on event) modes. Watchdog register auto-clears every 30 s.", tag:"🧪 TESTING",
+            code:"# coil 0x01 = active leak flag\n# reg  0x10 = confidence × 1000\n# reg  0x11 = flow_lps × 100" },
+          { name:"OPC-UA Node Tree", text:"Sensor twins exposed as ObjectNodes under ns=2;s=OmniSense/Sensors/<id>. Hypotheses published to ns=2;s=OmniSense/Hypotheses/<id>. Configurable publish interval.", tag:"🧪 TESTING",
+            code:"ua.Node('Sensors/{sid}')\n  .add_variable('p_leak', 0.0)\n  .add_variable('rul_months', 999)" },
+        ]
+      },
+      { id:"dma", name:"DMA Balance", icon:"📊", status:"PLANNED",
+        desc:"Automated Night Minimum Flow analysis and Infrastructure Leakage Index calculation per AWWA M36 methodology. Planned for v2.2.",
+        algos:[
+          { name:"Night Min Flow", text:"NMF at 02:00–04:00 local isolates real losses from legitimate night use. Baseline: 1.7 L/connection/hour (AWWA M36 default). Real loss = NMF − legitimate use.", tag:"📋 PLANNED",
+            code:"NMF = flow_02h - legit_use\nreal_loss_lph = NMF * connections" },
+          { name:"ILI Calculation", text:"Infrastructure Leakage Index = Current Annual Real Losses / Unavoidable Annual Real Losses (UARL). ILI < 2 is world-class; ILI > 8 triggers OFWAT reporting.", tag:"📋 PLANNED",
+            code:"UARL = (18*Lm + 0.8*Nc + 25*Lp)\n        * 0.001 * Pave\nILI = CARL / UARL" },
+        ]
+      },
+    ]
+  },
+
+  // ── 5. Live Network ────────────────────────────────────────────────────
+  {
+    id:"network", label:"Live Network", icon:"🌐", color:"#b347ff",
+    desc:"Digital twin state management, edge hardware lifecycle, observability stack, and OTA update pipeline for the full distributed sensor fleet.",
+    services:[
+      { id:"twins", name:"Sensor Twins", icon:"🔗", status:"ONLINE",
+        desc:"In-memory digital twin per physical sensor — holds current state, recent detection history, and telemetry. Backed by TimescaleDB hypertable for 30-day hot storage.",
+        algos:[
+          { name:"State Machine", text:"Each twin cycles: IDLE → CAPTURING → DETECTING → ALERTING → COOLING. State transitions logged to an immutable audit trail. History feeds dead-sensor anomaly detection.",
+            code:"class TwinState(Enum):\n  IDLE      = 'idle'\n  CAPTURING = 'capturing'\n  ALERTING  = 'alerting'" },
+          { name:"TimescaleDB Sync", text:"Hypertable partitioned by sensor_id + time with 7-day chunks. Lossless compression after 30 days. Continuous aggregates at 5-min and 1-hour rollups power Grafana dashboards.",
+            code:"SELECT create_hypertable(\n  'sensor_events', 'ts');\n-- Rollup:\nCREATE MATERIALIZED VIEW ..." },
+        ]
+      },
+      { id:"obs", name:"Observability", icon:"📈", status:"ONLINE",
+        desc:"Prometheus metrics, Grafana dashboards, and structured JSON log shipping to Loki for every detection event. P95 inference latency target: 500 ms.",
+        algos:[
+          { name:"Prometheus Metrics", text:"Key gauges/histograms: omni_detections_total{sensor,result}, omni_inference_latency_ms, omni_tdoa_success_ratio. Scrape 15 s. Alert on P95 > 500 ms.",
+            code:"DETECT_CTR = Counter(\n  'omni_detections_total',\n  ['sensor_id','result'])\nLATENCY = Histogram(\n  'omni_inference_latency_ms')" },
+          { name:"Structured Logging", text:"Every detection emits a JSON log entry: timestamp, sensor_id, p_leak, rms, zcr, mfcc0_mean, inference_ms, model_version, ood_flag. Shipped via promtail to Loki.",
+            code:'log.info("detection", extra={\n  "p_leak": p, "rms": rms,\n  "inference_ms": t,\n  "ood": ood_flag\n})' },
+        ]
+      },
+      { id:"edge", name:"Edge Hardware", icon:"🖥", status:"ONLINE",
+        desc:"Raspberry Pi 5 / Jetson Nano fleet running the EEP asyncio runtime. Redis Streams for at-least-once PCM delivery. OTA container updates via GHCR polling.",
+        algos:[
+          { name:"Redis Streams", text:"XADD/XREADGROUP with consumer groups for at-least-once PCM delivery between EEP and IEP2. Dead-letter group for failed frames. 512-sample rolling capture buffer.",
+            code:"redis.xadd('omni:raw', {\n  'pcm': b64pcm,\n  'sr': 16000,\n  'sensor_id': sid})" },
+          { name:"OTA Pipeline", text:"GitHub Actions builds and pushes to GHCR on every main merge. Devices poll GHCR every 15 min, pull and restart container if digest changed. Rollback on health-check failure within 90 s.",
+            code:"if remote_digest != local_digest:\n    pull_and_restart()\n    await health_check(timeout=90)" },
+        ]
+      },
+    ]
+  },
+
+  // ── 6. Active Interventions (NEW) ──────────────────────────────────────
+  {
+    id:"interventions", label:"Interventions", icon:"⚙️", color:"#ff9500",
+    desc:"Moves Omni-Sense from passive detection to active response — burst classification, automated pressure control, hydraulic transient detection, and capital replacement planning.",
+    services:[
+      { id:"burst", name:"Burst Response", icon:"🆘", status:"ONLINE",
+        desc:"Classifies each leak hypothesis as slow leak or burst, then runs a full escalation state machine: isolation valve recommendation → 15-min emergency crew page → outage notification draft.",
+        algos:[
+          { name:"Burst Classifier", text:"Decision tree on fused confidence × flow rate. Burst: flow ≥ 2 L/s or (conf ≥ 0.85 and flow ≥ 1 L/s) or fast onset (two high-conf detections < 30 s on same segment).",
+            code:"if flow >= 2.0 or fast_onset(seg):\n    severity = BURST\nif flow >= 5.0:\n    severity = CRITICAL" },
+          { name:"Escalation FSM", text:"DETECTED → CLASSIFIED → ISOLATION_RECOMMENDED → PRESSURE_REDUCED → CREW_DISPATCHED → RESOLVED. CRITICAL bursts auto-execute actuated valve isolation after a 180-second human-confirm window.",
+            code:"await bus.publish(\n  'intervention.isolation.v1',\n  {'valves': recommended,\n   'auto_after_s': 180})" },
+          { name:"Outage Notification Draft", text:"Auto-generates customer outage notice (zone name, affected connections, crew ETA) tagged [REQUIRES HUMAN REVIEW]. Published to bus — never auto-sent.",
+            code:"draft = (f'Water interruption for '\n  f'{zone} ({conns} connections).'\n  f' Crew dispatched.')\n# [HUMAN REVIEW REQUIRED]" },
+        ]
+      },
+      { id:"pressure", name:"Pressure Control", icon:"🔧", status:"ONLINE",
+        desc:"Recommends PRV setpoint reductions using Torricelli's law. Cutting pressure from 5 to 3 bar reduces outflow by ~22 % — saving hundreds of litres while the crew is en route.",
+        algos:[
+          { name:"Torricelli Reduction", text:"Q ∝ √P, so flow ratio Q₂/Q₁ = √(P₂/P₁). Target setpoint scales with confidence: at conf=1.0 we aim for pressure floor; at conf=0.55 we only reduce by 20 % of available headroom.",
+            code:"ratio = sqrt(target_bar / current_bar)\nflow_saved = flow_lps * (1 - ratio)\nwater_saved_L = flow_saved * resp_s" },
+          { name:"Minimum Night Pressure", text:"We never recommend below max(1.5 bar, PRV min_service_bar) — preserving WHO-compliant minimum service pressure (0.7 bar at customer tap). Command published to intervention.prv_setpoint.v1.",
+            code:"floor  = max(1.5, prv['min_service_bar'])\nalpha  = (confidence - 0.5) * 2.0\ntarget = current - alpha*(current-floor)" },
+        ]
+      },
+      { id:"hammer", name:"Water Hammer", icon:"⚡", status:"ONLINE",
+        desc:"Detects hydraulic transient shock waves in acoustic frames before they accumulate fatigue damage at pipe bends and joints. Operates on every raw frame independently of leak detection.",
+        algos:[
+          { name:"Composite Score", text:"Four weighted components: crest factor normalised (0.35), rise-time proxy (0.20), HF energy fraction above 500 Hz (0.25), exponential ringdown correlation (0.20). Alert if score > 0.65 for 2 consecutive frames.",
+            code:"score = 0.35*crest_n\n      + 0.20*rise_n\n      + 0.25*hf_energy\n      + 0.20*ringdown_corr" },
+          { name:"Crest + Ringdown Signature", text:"Water hammer: crest factor > 8 (vs. slow leak: 3–6), and |signal| fits exponential decay e^{−3t}. Crest < 8 hard-gate suppresses score by 70 % — avoids false positives on loud valves.",
+            code:"template = exp(-3.0 * t)\ncorr = corrcoef(|pcm|, template)\nif crest < 8: score *= 0.3" },
+          { name:"Operational Remedy", text:"When confirmed, publishes typed recommendation: slow valve close-time to exceed L/v seconds (pipe length ÷ wave speed for material) and schedule surge arrestor inspection.",
+            code:"# Cast iron 120 m, v=1350 m/s:\nmin_close_s = 120/1350  # 0.089 s\n# → recommend close time > 0.1 s" },
+        ]
+      },
+      { id:"capplan", name:"Capital Planner", icon:"📋", status:"ONLINE",
+        desc:"Converts RUL forecasts into a ranked 10-year pipe replacement programme with cost estimates and spatial batching — grouping segments within 250 m saves ~45 % on excavation mobilisation cost.",
+        algos:[
+          { name:"Priority Score", text:"S = 0.40×urgency + 0.25×leak_history + 0.20×water_loss + 0.15×criticality. Each component min-max normalised across the full asset register. Score drives ranked replacement order.",
+            code:"S = 0.40*urgency_n\n  + 0.25*leak_n\n  + 0.20*water_n\n  + 0.15*crit_n" },
+          { name:"Spatial Batching", text:"Greedy clustering: each segment joins the nearest centroid within 250 m, processed in priority-score order. Batched segments share the £12 k mobilisation fixed cost — saving ~45 % per co-located job.",
+            code:"if haversine(seg, centroid) < 250:\n    cluster.append(seg)\n    saving += mob_cost * 0.45" },
+          { name:"Cost Model", text:"Total cost = (material $/m + £850 excavation/m) × length + mobilisation. Cast iron replacement £970/m. JSON report output for CMMS capital budget integration.",
+            code:"cost = (mat_pm + 850) * length_m\n     + 12000 * (1 - 0.45*batched)\n# mat_pm: £120/m cast iron" },
+        ]
+      },
+    ]
+  },
+];
+
+// ════════════════════════════════════════════════════════
+//  CANVAS BACKGROUND
+// ════════════════════════════════════════════════════════
+const canvas = document.getElementById('bg');
+const ctx    = canvas.getContext('2d');
+let W, H, tick = 0;
+
+class Particle {
+  constructor() { this.reset(true); }
+  reset(init) {
+    this.x  = Math.random() * W;
+    this.y  = init ? Math.random() * H : H + 10;
+    this.vx = (Math.random() - 0.5) * 0.45;
+    this.vy = (Math.random() - 0.5) * 0.45;
+    this.r  = 0.6 + Math.random() * 1.6;
+    this.a  = 0.15 + Math.random() * 0.35;
+  }
+  step() {
+    this.x += this.vx; this.y += this.vy;
+    if (this.x<0||this.x>W||this.y<0||this.y>H) this.reset(false);
+  }
+  draw() {
+    ctx.fillStyle = `rgba(0,210,255,${this.a})`;
+    ctx.beginPath(); ctx.arc(this.x, this.y, this.r, 0, Math.PI*2); ctx.fill();
+  }
+}
+
+let particles = [];
+function resize() {
+  W = canvas.width  = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+  if (!particles.length)
+    particles = Array.from({length:140}, () => new Particle());
+}
+
+function animate() {
+  ctx.fillStyle = 'rgba(0,8,16,0.18)'; ctx.fillRect(0,0,W,H);
+  const t = Date.now() * 0.001;
+  // Slow waveforms
+  for (let j=0; j<2; j++) {
+    ctx.beginPath(); ctx.strokeStyle = 'rgba(0,210,255,0.04)'; ctx.lineWidth=1.5;
+    for (let i=0; i<W; i+=8) {
+      const y = H/2 + Math.sin(i*0.012 + t*(1.2+j*0.4)) * 120 * Math.sin(t*0.3 + j);
+      i===0 ? ctx.moveTo(i,y) : ctx.lineTo(i,y);
+    }
+    ctx.stroke();
+  }
+  // Expanding rings
+  const alpha = 0.06 * Math.sin(t * 0.5 + Math.PI/2);
+  if (alpha > 0) {
+    ctx.beginPath(); ctx.arc(W/2, H/2, 180 + (tick%120)*2, 0, Math.PI*2);
+    ctx.strokeStyle = `rgba(0,210,255,${alpha})`; ctx.lineWidth=1; ctx.stroke();
+  }
+  particles.forEach(p => { p.step(); p.draw(); });
+  tick++; requestAnimationFrame(animate);
+}
+
+// ════════════════════════════════════════════════════════
+//  HUB BUILDER
+// ════════════════════════════════════════════════════════
+function buildHub() {
+  const wrap = document.getElementById('nodes-wrap');
+  wrap.innerHTML = '';
+  const radius = 360;
+  DOMAINS.forEach((d, i) => {
+    const angle = (i / DOMAINS.length) * Math.PI * 2 - Math.PI/2;
+    const x = Math.cos(angle) * radius;
+    const y = Math.sin(angle) * radius;
+    const node = document.createElement('div');
+    node.className = 'domain-node';
+    node.style.left = `calc(50% + ${x}px)`;
+    node.style.top  = `calc(50% + ${y}px)`;
+    // domain-specific color
+    node.style.setProperty('--dc', d.color);
+    node.innerHTML = `<span class="d-icon">${d.icon}</span><span class="d-label" style="color:${d.color}">${d.label}</span>`;
+    // hover tint
+    node.addEventListener('mouseover', () => {
+      node.style.background = d.color + '22';
+      node.style.boxShadow  = `0 0 36px ${d.color}55`;
+    });
+    node.addEventListener('mouseout', () => {
+      node.style.background = '';
+      node.style.boxShadow  = '';
+    });
+    node.onclick = e => { spawnRipple(e); showDomain(d); };
+    wrap.appendChild(node);
+  });
+}
+
+// ════════════════════════════════════════════════════════
+//  NAVIGATION
+// ════════════════════════════════════════════════════════
+let activeDomain = null;
+
+function showDomain(domain) {
+  activeDomain = domain;
+  const l0 = document.getElementById('layer0');
+  const l1 = document.getElementById('layer1');
+  l0.classList.add('prev');
+  setTimeout(() => {
+    l0.classList.add('hidden');
+    l1.classList.remove('hidden');
+    l1.classList.remove('prev');
+
+    document.getElementById('dom-title').textContent = domain.label.toUpperCase();
+    document.getElementById('dom-title').style.color  = domain.color;
+    document.getElementById('dom-desc').textContent   = domain.desc;
+
+    // Breadcrumb
+    document.getElementById('bc-domain').style.display       = 'inline';
+    document.getElementById('bc-domain-label').style.display = 'inline';
+    document.getElementById('bc-domain-label').textContent   = domain.label.toUpperCase().replace('\n','_');
+    document.getElementById('bc-domain-label').style.color   = domain.color;
+    document.getElementById('bc-svc-sep').style.display   = 'none';
+    document.getElementById('bc-svc-label').style.display = 'none';
+
+    // Orbs
+    const wrap = document.getElementById('orbs-container');
+    wrap.innerHTML = '';
+    const n = domain.services.length;
+    const orbR = Math.min(280, 120 + n * 55);
+    domain.services.forEach((s, i) => {
+      const angle = (i / n) * Math.PI * 2 - Math.PI/2;
+      const x = Math.cos(angle) * orbR;
+      const y = Math.sin(angle) * orbR;
+      const orb = document.createElement('div');
+      orb.className = 'service-orb';
+      orb.style.left = `calc(50% + ${x}px)`;
+      orb.style.top  = `calc(50% + ${y}px)`;
+      orb.style.borderColor = domain.color + '44';
+      const st = ST[s.status] || ST.ONLINE;
+      orb.innerHTML = `
+        <div class="orb-icon">${s.icon}</div>
+        <div class="orb-name" style="color:${domain.color}">${s.name}</div>
+        <div class="orb-st ${st.cls}">${st.label}</div>`;
+      orb.addEventListener('mouseover', () => {
+        orb.style.borderColor = domain.color;
+        orb.style.boxShadow = `0 16px 42px ${domain.color}28`;
+        orb.style.transform = 'translate(-50%,-50%) scale(1.09) translateY(-8px)';
+      });
+      orb.addEventListener('mouseout', () => {
+        orb.style.borderColor = domain.color + '44';
+        orb.style.boxShadow = '';
+        orb.style.transform = 'translate(-50%,-50%)';
+      });
+      orb.onclick = e => { spawnRipple(e); showService(s, domain); };
+      wrap.appendChild(orb);
+    });
+  }, 360);
+}
+
+function showService(svc, domain) {
+  const l1 = document.getElementById('layer1');
+  const l2 = document.getElementById('layer2');
+  l1.classList.add('prev');
+  setTimeout(() => {
+    l1.classList.add('hidden');
+    l2.classList.remove('hidden');
+    l2.classList.remove('prev');
+    l2.scrollTop = 0;
+
+    document.getElementById('svc-title').textContent    = svc.name;
+    document.getElementById('detail-head').style.borderColor = domain.color;
+    document.getElementById('svc-desc').textContent     = svc.desc;
+
+    document.getElementById('bc-svc-sep').style.display   = 'inline';
+    document.getElementById('bc-svc-label').style.display = 'inline';
+    document.getElementById('bc-svc-label').textContent   = svc.name.toUpperCase();
+    document.getElementById('bc-svc-label').style.color   = domain.color;
+
+    const grid = document.getElementById('algo-grid');
+    grid.innerHTML = '';
+    svc.algos.forEach(a => {
+      const card = document.createElement('div');
+      card.className = 'algo-card';
+      const tagHtml = a.tag
+        ? `<div class="algo-tag" style="background:${domain.color}18;color:${domain.color};border:1px solid ${domain.color}40">${a.tag}</div>`
+        : '';
+      card.innerHTML = `
+        <h4 style="color:${domain.color}">${a.name}</h4>
+        <p>${a.text}</p>
+        <pre>${a.code}</pre>
+        ${tagHtml}`;
+      grid.appendChild(card);
+    });
+  }, 360);
+}
+
+function goBackToDomain() {
+  const l1 = document.getElementById('layer1');
+  const l2 = document.getElementById('layer2');
+  l2.classList.add('hidden');
+  l1.classList.remove('hidden');
+  l1.classList.remove('prev');
+  document.getElementById('bc-svc-sep').style.display   = 'none';
+  document.getElementById('bc-svc-label').style.display = 'none';
+}
+
+function goHome() {
+  ['layer0','layer1','layer2'].forEach(id => {
+    const el = document.getElementById(id);
+    el.classList.remove('prev');
+    el.classList.add('hidden');
+  });
+  const l0 = document.getElementById('layer0');
+  l0.classList.remove('hidden');
+  activeDomain = null;
+  document.getElementById('bc-domain').style.display       = 'none';
+  document.getElementById('bc-domain-label').style.display = 'none';
+  document.getElementById('bc-svc-sep').style.display      = 'none';
+  document.getElementById('bc-svc-label').style.display    = 'none';
+}
+
+// ════════════════════════════════════════════════════════
+//  RIPPLE
+// ════════════════════════════════════════════════════════
+function spawnRipple(e) {
+  const r = document.createElement('div');
+  r.className = 'ripple';
+  r.style.left = `${e.clientX}px`;
+  r.style.top  = `${e.clientY}px`;
+  document.body.appendChild(r);
+  setTimeout(() => r.remove(), 950);
+}
+
+// ════════════════════════════════════════════════════════
+//  LIVE METRICS TICKER
+// ════════════════════════════════════════════════════════
+function tickMetrics() {
+  document.getElementById('met-risk').textContent  = (Math.random() * 0.18).toFixed(3) + '%';
+  document.getElementById('met-lat').textContent   = (10 + Math.random() * 8).toFixed(1) + 'ms';
+  document.getElementById('met-clock').textContent = new Date().toUTCString().slice(17, 25);
+  setTimeout(tickMetrics, 1200);
+}
+
+// ════════════════════════════════════════════════════════
+//  KEYBOARD
+// ════════════════════════════════════════════════════════
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    const l2 = document.getElementById('layer2');
+    if (!l2.classList.contains('hidden')) { goBackToDomain(); return; }
+    const l1 = document.getElementById('layer1');
+    if (!l1.classList.contains('hidden')) { goHome(); }
+  }
+});
+
+// ════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════
+window.addEventListener('resize', resize);
+window.addEventListener('load', () => {
+  resize();
+  buildHub();
+  tickMetrics();
+  animate();
+});
+</script>
+</body>
+</html>
