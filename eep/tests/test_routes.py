@@ -37,11 +37,15 @@ class TestHealthEndpoint:
 
 
 class TestDiagnoseEndpoint:
+    @patch("app.routes.diagnose.call_iep4_classify")
     @patch("app.routes.diagnose.call_iep2_diagnose")
-    @patch("app.routes.diagnose.call_iep1_embed")
-    def test_successful_diagnosis(self, mock_iep1, mock_iep2, client):
-        """Full pipeline: valid audio → IEP1 → IEP2 → success."""
-        mock_iep1.return_value = [0.1] * 1024
+    @patch("app.routes.diagnose.extract_features_local")
+    def test_successful_diagnosis(self, mock_feat, mock_iep2, mock_iep4, client):
+        """Full pipeline: valid audio → local features → IEP2 (+IEP4 skipped) → success."""
+        # EEP now extracts 39-d physics features natively (no more IEP1).
+        # IEP4 is skipped in unit tests (returns None → ensemble falls back
+        # to iep2_only), so we don't need the HTTP client patched.
+        mock_feat.return_value = [0.1] * 39
         mock_iep2.return_value = {
             "is_ood": False,
             "label": "leak",
@@ -50,6 +54,7 @@ class TestDiagnoseEndpoint:
             "anomaly_score": 0.15,
             "is_in_distribution": True,
         }
+        mock_iep4.return_value = None  # IEP4 not reached in unit tests
 
         wav_bytes = make_wav_bytes()
         metadata = json.dumps({"pipe_material": "PVC", "pressure_bar": 3.0})

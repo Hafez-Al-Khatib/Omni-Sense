@@ -1,6 +1,4 @@
-﻿version: "3.9"
-
-services:
+﻿services:
   mqtt-broker:
     image: eclipse-mosquitto:2.0
     ports:
@@ -9,16 +7,23 @@ services:
       - ./omni/configs:/mosquitto/config:rw
       - ./certs:/mosquitto/certs:rw
       - mqtt-data:/mosquitto/data
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 8883 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
     networks:
       - omni-net
     restart: unless-stopped
 
   iep2:
     build:
-      context: ./iep2
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: iep2/Dockerfile
     ports:
       - "8002:8002"
+    volumes:
+      - ./iep2/models:/app/models:rw
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
       interval: 30s
@@ -114,8 +119,10 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      # Credentials sourced from .env (see .env.example).  Defaults only apply
+      # to local dev; production deploys MUST override via env/secret manager.
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required — copy .env.example to .env}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -127,6 +134,88 @@ services:
       - omni-net
     restart: unless-stopped
 
+
+
+  # ── Platform v2 (EEP v2 + Intelligence + Action layer) ──
+  omni-platform:
+    build:
+      context: .
+      dockerfile: omni/Dockerfile
+    ports:
+      - "8501:8501"      # Streamlit ops console
+    environment:
+      - OMNI_MQTT_HOST=mqtt-broker
+      - OMNI_MQTT_PORT=8883
+      - OMNI_MQTT_CA=/app/certs/ca.crt
+      - OMNI_MQTT_CERT=/app/certs/gateway.crt
+      - OMNI_MQTT_KEY=/app/certs/gateway.key
+      - OMNI_MQTT_USER=gateway
+      - OMNI_USE_STUB_GATEWAY=false
+      - TIMESCALE_DSN=postgresql://omni:omni@timescaledb:5432/omnisense
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./iep2/models:/app/iep2/models:ro     # read trained models for drift eval
+      - ./iep3:/app/iep3                       # read/write feedback_log.csv
+      - omni-data:/app/data
+    depends_on:
+      mqtt-broker:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - omni-net
+    restart: unless-stopped
+    command: >
+      sh -c "streamlit run omni/ops_console/app.py
+             --server.port=8501
+             --server.address=0.0.0.0
+             --server.headless=true"
+
+  # ── TimescaleDB (time-series + relational persistence) ──
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: omni
+      POSTGRES_PASSWORD: omni
+      POSTGRES_DB: omnisense
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./omni/common/db_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omni -d omnisense"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  # ── Redis (distributed event bus + cache) ────────────────
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+networks:
+  omni-net:
+    driver: bridge
+
 volumes:
   prometheus-data:
   grafana-data:
@@ -134,7 +223,7 @@ volumes:
   iep4-models:
   mqtt-data:
   omni-data:
+  timescale-data:
+  redis-data:
 
-networks:
-  omni-net:
-    driver: bridge
+

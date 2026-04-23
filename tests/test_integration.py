@@ -1,7 +1,11 @@
 """
-Integration tests: EEP → IEP1 → IEP2 pipeline.
+Integration tests: EEP → (native DSP features) → IEP2/IEP4 pipeline.
 
-Requires all services to be running (e.g., via docker-compose).
+IEP1 (YAMNet) was decommissioned in 2026-04; DSP feature extraction
+now happens natively inside EEP (see `omni/eep/features.py`), so the
+external hop to IEP1 has been removed from this test's flow.
+
+Requires the stack to be running via docker-compose.
 Run: pytest tests/test_integration.py -v
 """
 

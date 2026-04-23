@@ -196,9 +196,12 @@ def extract_features(pcm: np.ndarray, sr: int = 16_000) -> np.ndarray:
     rolloff = _spectral_rolloff(mag, sr)
     flat    = _spectral_flatness(mag)
 
-    cent_mean  = float(np.mean(cent));    cent_std  = float(np.std(cent))
-    roll_mean  = float(np.mean(rolloff)); roll_std  = float(np.std(rolloff))
-    flat_mean  = float(np.mean(flat));    flat_std  = float(np.std(flat))
+    cent_mean = float(np.mean(cent))
+    cent_std = float(np.std(cent))
+    roll_mean = float(np.mean(rolloff))
+    roll_std = float(np.std(rolloff))
+    flat_mean = float(np.mean(flat))
+    flat_std = float(np.std(flat))
 
     # ── MFCCs ────────────────────────────────────────────────────────────
     mfccs = _compute_mfccs(mag, sr, _N_MELS, _N_MFCC)   # (n_frames, 13)

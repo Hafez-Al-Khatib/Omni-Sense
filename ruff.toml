@@ -1,3 +1,13 @@
+# Directories ruff must never scan. `demo/omnisense-env/` is a local
+# Python virtualenv (already in .gitignore but sometimes present on
+# developer machines); `archive/` holds decommissioned services.
+extend-exclude = [
+    "demo/omnisense-env",
+    "archive",
+    "**/__pycache__",
+    "**/pytest-cache-files-*",
+]
+
 [lint]
 # Rules added on top of CLI --ignore E501,E402:
 #

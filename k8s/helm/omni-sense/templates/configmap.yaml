@@ -12,8 +12,9 @@ data:
   OMNI_MQTT_PORT: {{ .Values.sharedConfig.mqttPort | quote }}
 
   # Internal service URLs (cluster-local DNS)
+  # IEP1 (YAMNet) was decommissioned — DSP features are now extracted
+  # natively inside EEP.  OMNI_IEP1_URL is therefore not injected.
   OMNI_EEP_API_URL: {{ .Values.sharedConfig.eepApiUrl | quote }}
-  OMNI_IEP1_URL: {{ .Values.sharedConfig.iep1Url | quote }}
   OMNI_IEP2_URL: {{ .Values.sharedConfig.iep2Url | quote }}
   OMNI_IEP3_URL: {{ .Values.sharedConfig.iep3Url | quote }}
   OMNI_IEP4_URL: {{ .Values.sharedConfig.iep4Url | quote }}

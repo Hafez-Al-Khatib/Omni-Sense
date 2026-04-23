@@ -1,5 +1,6 @@
 fastapi>=0.110
 uvicorn[standard]>=0.27
+torch>=2.0
 onnxruntime>=1.17
 numpy>=1.26
 pydantic>=2.6

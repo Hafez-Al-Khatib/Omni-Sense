@@ -70,7 +70,8 @@ spec:
       - key: app.kubernetes.io/name
         operator: In
         values:
-          - iep1
+          # iep1 removed — YAMNet microservice decommissioned,
+          # DSP feature extraction moved into EEP.
           - iep2
           - iep3
           - iep4

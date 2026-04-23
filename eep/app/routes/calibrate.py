@@ -4,8 +4,8 @@ Calibrate Route
 POST /api/v1/calibrate — Dynamic OOD threshold calibration.
 
 Accepts a multi-part audio upload of ambient recording(s),
-extracts embeddings via IEP1, then calls IEP2 to adjust
-the Isolation Forest threshold.
+extracts 39-d physics features locally (the old IEP1 microservice is
+decommissioned), then calls IEP2 to adjust the Isolation Forest threshold.
 """
 
 import io
@@ -19,8 +19,8 @@ from app.config import settings
 from app.middleware.rate_limiter import limiter
 from app.services.orchestrator import (
     OrchestratorError,
-    call_iep1_embed,
     call_iep2_calibrate,
+    extract_features_local,
 )
 
 logger = logging.getLogger("eep.calibrate")
@@ -42,7 +42,7 @@ async def calibrate(
     Upload a 10-second ambient recording from the deployment site.
     The system will:
     1. Split the recording into 5-second overlapping windows
-    2. Extract embeddings for each window via IEP1
+    2. Extract 39-d physics features for each window (locally in EEP)
     3. Compute the ambient acoustic profile
     4. Adjust the OOD detection threshold accordingly
     """
@@ -105,19 +105,18 @@ async def calibrate(
 
     logger.info(f"Calibration: {len(windows)} windows from {duration_s:.1f}s recording")
 
-    # ── Extract embeddings for each window via IEP1 ──
+    # ── Extract 39-d features for each window (locally, no network hop) ──
     embeddings = []
     for i, window in enumerate(windows):
-        # Re-encode window as WAV bytes for IEP1
         buffer = io.BytesIO()
         sf.write(buffer, window, sr, format="WAV")
         window_bytes = buffer.getvalue()
 
         try:
-            embedding = await call_iep1_embed(window_bytes)
+            embedding = await extract_features_local(window_bytes)
             embeddings.append(embedding)
         except OrchestratorError as e:
-            logger.warning(f"IEP1 failed for window {i}: {e}")
+            logger.warning(f"Local feature extraction failed for window {i}: {e}")
             continue
 
     if len(embeddings) < 1:
