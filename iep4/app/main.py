@@ -39,9 +39,9 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from prometheus_client import Counter, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 
-from app.audio import preprocess_audio
-from app.model import cnn_classifier
-from app.schemas import CNNResponse, HealthResponse
+from iep4.app.audio import preprocess_audio
+from iep4.app.model import cnn_classifier
+from iep4.app.schemas import CNNResponse, HealthResponse
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("iep4")
