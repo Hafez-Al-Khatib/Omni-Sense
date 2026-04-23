@@ -1,0 +1,231 @@
+﻿services:
+  mqtt-broker:
+    image: eclipse-mosquitto:2.0
+    ports:
+      - "8883:8883"
+    volumes:
+      - ./omni/configs:/mosquitto/config:rw
+      - ./certs:/mosquitto/certs:rw
+      - mqtt-data:/mosquitto/data
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 8883 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  iep2:
+    build:
+      context: .
+      dockerfile: iep2/Dockerfile
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./iep2/models:/app/models:rw
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    networks:
+      - omni-net
+    restart: unless-stopped
+    depends_on:
+      - mqtt-broker
+
+  iep3:
+    build:
+      context: ./iep3
+      dockerfile: Dockerfile
+    ports:
+      - "8003:8003"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8003/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    volumes:
+      - iep3-tickets:/app/tickets
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  iep4:
+    build:
+      context: ./iep4
+      dockerfile: Dockerfile
+    ports:
+      - "8004:8004"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    volumes:
+      - iep4-models:/app/models
+      - ./iep2/models/autoencoder_ood.pt:/app/models/autoencoder_ood.pt:ro
+      - ./iep2/models/autoencoder_threshold.npy:/app/models/autoencoder_threshold.npy:ro
+    networks:
+      - omni-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+
+  eep:
+    build:
+      context: ./eep
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - OMNI_IEP2_URL=http://iep2:8002
+      - OMNI_IEP3_URL=http://iep3:8003
+      - OMNI_IEP4_URL=http://iep4:8004
+      - OMNI_RATE_LIMIT=5/minute
+    depends_on:
+      iep2:
+        condition: service_healthy
+      iep3:
+        condition: service_healthy
+      iep4:
+        condition: service_healthy
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.4.0
+    ports:
+      - "3000:3000"
+    environment:
+      # Credentials sourced from .env (see .env.example).  Defaults only apply
+      # to local dev; production deploys MUST override via env/secret manager.
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required — copy .env.example to .env}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards-json:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+
+
+  # ── Platform v2 (EEP v2 + Intelligence + Action layer) ──
+  omni-platform:
+    build:
+      context: .
+      dockerfile: omni/Dockerfile
+    ports:
+      - "8501:8501"      # Streamlit ops console
+    environment:
+      - OMNI_MQTT_HOST=mqtt-broker
+      - OMNI_MQTT_PORT=8883
+      - OMNI_MQTT_CA=/app/certs/ca.crt
+      - OMNI_MQTT_CERT=/app/certs/gateway.crt
+      - OMNI_MQTT_KEY=/app/certs/gateway.key
+      - OMNI_MQTT_USER=gateway
+      - OMNI_USE_STUB_GATEWAY=false
+      - TIMESCALE_DSN=postgresql://omni:omni@timescaledb:5432/omnisense
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./certs:/app/certs:ro
+      - ./iep2/models:/app/iep2/models:ro     # read trained models for drift eval
+      - ./iep3:/app/iep3                       # read/write feedback_log.csv
+      - omni-data:/app/data
+    depends_on:
+      mqtt-broker:
+        condition: service_healthy
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - omni-net
+    restart: unless-stopped
+    command: >
+      sh -c "streamlit run omni/ops_console/app.py
+             --server.port=8501
+             --server.address=0.0.0.0
+             --server.headless=true"
+
+  # ── TimescaleDB (time-series + relational persistence) ──
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=omni
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?required}
+      - POSTGRES_DB=omnisense
+    volumes:
+      - timescale-data:/var/lib/postgresql/data
+      - ./omni/common/db_schema.sql:/docker-entrypoint-initdb.d/01_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omni -d omnisense"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  # ── Redis (distributed event bus + cache) ────────────────
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+networks:
+  omni-net:
+    driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:
+  iep3-tickets:
+  iep4-models:
+  mqtt-data:
+  omni-data:
+  timescale-data:
+  redis-data:
+
+
