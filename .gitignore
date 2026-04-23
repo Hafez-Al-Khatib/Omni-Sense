@@ -28,6 +28,11 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# Secrets
+certs/*.key
+omni/configs/passwd
+.env.example
 omnisense-env/
 # Data (large files - tracked via DVC or downloaded separately)
 data/raw/
@@ -66,3 +71,4 @@ monitoring/grafana/data/
 *.md
 
 .claude/
+"certs/*.key" 
