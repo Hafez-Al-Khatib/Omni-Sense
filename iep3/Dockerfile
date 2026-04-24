@@ -2,10 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY iep3/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/ ./app/
+COPY iep3/app/ ./app/
+COPY omni /app/omni
 
 # Ticket storage directory (mounted as volume in production)
 RUN mkdir -p /app/tickets

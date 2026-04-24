@@ -32,8 +32,8 @@ services:
   # ── Internal Endpoint 2 (Diagnostic Engine) ─────────────
   iep2:
     build:
-      context: ./iep2
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: iep2/Dockerfile
     ports:
       - "8002:8002"
     healthcheck:
@@ -49,8 +49,8 @@ services:
   # ── Internal Endpoint 4 (CNN Deep Classifier) ───────────
   iep4:
     build:
-      context: ./iep4
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: iep4/Dockerfile
     ports:
       - "8004:8004"
     healthcheck:
@@ -110,8 +110,8 @@ services:
   # ── Internal Endpoint 3 (Dispatch & Active Learning) ────
   iep3:
     build:
-      context: ./iep3
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: iep3/Dockerfile
     ports:
       - "8003:8003"
     healthcheck:
@@ -139,6 +139,7 @@ services:
     networks:
       - omni-net
     restart: unless-stopped
+    user: "root"
     healthcheck:
       test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1",
              "--cafile", "/mosquitto/certs/ca.crt",
@@ -189,7 +190,7 @@ services:
 
   # ── TimescaleDB (time-series + relational persistence) ──
   timescaledb:
-    image: timescale/timescaledb-ha:pg16-latest
+    image: timescale/timescaledb:latest-pg16
     ports:
       - "5432:5432"
     environment:

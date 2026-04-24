@@ -6,10 +6,11 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends libsndfile1 ffmpeg && \
     rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY iep4/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/ ./app/
+COPY iep4/app/ ./app/
+COPY omni /app/omni
 
 # Models are volume-mounted at runtime (trained externally)
 RUN mkdir -p models

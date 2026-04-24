@@ -5,7 +5,7 @@ Two-stage inference pipeline:
   Stage 1: Isolation Forest (OOD detection / safety watchdog)
   Stage 2: XGBoost (leak classification with calibrated probabilities)
 
-Accepts 1024-d YAMNet embeddings + metadata, returns diagnosis.
+Accepts 39-d physics features (DSP) + metadata, returns diagnosis.
 """
 
 import logging

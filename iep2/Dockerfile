@@ -2,11 +2,12 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY iep2/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/ ./app/
-COPY models/ ./models/
+COPY iep2/app/ ./app/
+COPY iep2/models/ ./models/
+COPY omni /app/omni
 
 EXPOSE 8002
 
