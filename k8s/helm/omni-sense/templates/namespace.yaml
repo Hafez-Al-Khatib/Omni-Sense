@@ -1,7 +1,0 @@
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: {{ include "omni-sense.namespace" . }}
-  labels:
-    {{- include "omni-sense.labels" . | nindent 4 }}
-    app.kubernetes.io/component: namespace

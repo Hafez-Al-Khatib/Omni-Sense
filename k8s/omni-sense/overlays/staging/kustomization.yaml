@@ -1,0 +1,8 @@
+resources:
+  - ../../base
+
+namePrefix: "staging-"
+
+images:
+  - name: maramshatila/omni-sense-eep
+    newTag: "v1-staging"

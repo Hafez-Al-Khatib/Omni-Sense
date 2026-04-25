@@ -1,0 +1,11 @@
+resources:
+  - ../../base
+
+namePrefix: "production-"
+
+images:
+  - name: maramshatila/omni-sense-eep
+    newTag: "v1-production"
+
+patchesStrategicMerge:
+  - replicas-patch.yaml  # Apply patch to set replicas for production

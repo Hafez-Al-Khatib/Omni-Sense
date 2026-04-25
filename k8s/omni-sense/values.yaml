@@ -1,0 +1,34 @@
+replicaCount: 2
+
+image:
+  repository: maramshatila/omni-sense-eep
+  tag: v1
+  pullPolicy: IfNotPresent
+
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 8000
+
+containerPort: 8000
+
+resources:
+  requests:
+    cpu: "250m"
+    memory: "512Mi"
+  limits:
+    cpu: "1000m"
+    memory: "2Gi"
+
+env:
+  PORT: "8000"
+
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 8
+  averageUtilization: 60
+
+ingress:
+  enabled: true
+  host: "34.67.139.17"  # Your custom domain or external IP

@@ -1,0 +1,6 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: omni-sense-eep
+spec:
+  replicas: 3  # Adjust for production

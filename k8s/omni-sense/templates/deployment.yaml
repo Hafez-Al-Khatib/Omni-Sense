@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-eep
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}-eep
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}-eep
+    spec:
+      containers:
+        - name: eep
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.containerPort }}
+          env:
+            - name: PORT
+              value: "{{ .Values.env.PORT }}"
+          resources:
+{{ toYaml .Values.resources | indent 12 }}

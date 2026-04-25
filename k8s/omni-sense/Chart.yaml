@@ -1,0 +1,6 @@
+apiVersion: v2
+name: omni-sense
+description: Helm chart for Omni-Sense EEP
+type: application
+version: 0.1.0
+appVersion: "1.0"
