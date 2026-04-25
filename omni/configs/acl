@@ -1,0 +1,3 @@
+﻿topic read omni/#
+pattern write omni/sensor/+/%u/acoustic
+pattern write omni/sensor/+/%u/telemetry

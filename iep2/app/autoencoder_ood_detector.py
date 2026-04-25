@@ -240,7 +240,13 @@ class AutoencoderOODDetector:
         log.info("AutoencoderOOD loaded (ONNX) from %s", path)
 
     def _load_torch(self, path: Path) -> None:
-        import torch
+        try:
+            import torch
+        except ImportError:
+            raise RuntimeError(
+                f"PyTorch model {path} requires 'torch' package, but torch is not installed. "
+                "Install torch or export model to ONNX format."
+            )
         model = _build_autoencoder()
         state = torch.load(str(path), map_location="cpu", weights_only=True)
         if isinstance(state, dict) and "model" in state:

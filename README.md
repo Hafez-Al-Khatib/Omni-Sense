@@ -88,3 +88,15 @@ docker-compose up --build
 ## License
 
 MIT
+
+## Environment Variables
+
+For production-oriented deployment, the system uses environment variables to connect the EEP service to internal microservices.
+
+Current configuration (partial cloud deployment):
+
+```env
+OMNI_IEP2_URL=http://localhost:8002
+OMNI_IEP3_URL=http://localhost:8003
+OMNI_IEP4_URL=http://localhost:8004
+```

@@ -2,7 +2,7 @@
 IEP 2 — Diagnostic & Safety Engine
 =====================================
 Two-stage inference pipeline:
-  Stage 1: Isolation Forest (OOD detection / safety watchdog)
+  Stage 1: Autoencoder (OOD detection / safety watchdog)
   Stage 2: XGBoost (leak classification with calibrated probabilities)
 
 Accepts 39-d physics features (DSP) + metadata, returns diagnosis.
