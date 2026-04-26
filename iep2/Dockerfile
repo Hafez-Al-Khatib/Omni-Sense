@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY iep2/requirements.txt .
-RUN pip install --no-cache-dir --no-verify-hashes -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY iep2/app/ ./app/
 COPY iep2/models/ ./models/
