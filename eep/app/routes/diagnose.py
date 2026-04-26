@@ -19,10 +19,11 @@ import io
 import json
 import logging
 import time
+from typing import Optional
 
 import numpy as np
 import soundfile as sf
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter
 

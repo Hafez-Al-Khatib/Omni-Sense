@@ -88,13 +88,21 @@ async def test_fused_quiet_below_threshold():
 
 @pytest.mark.asyncio
 async def test_budget_timeout_uses_fallback():
+    """Budget enforcement: fallback must fire well before the slow coroutine
+    finishes. Uses a generous wall-clock bound (1.5s) so the test stays robust
+    when HEAD_BUDGET_*_MS is overridden via env (see conftest.py)."""
+    from omni.eep.orchestrator import HEAD_BUDGET_MS
+
     async def slow():
         await asyncio.sleep(999)
         return 0.5
 
     val, ms = await _with_budget("xgb", slow(), fallback=0.123)
     assert val == pytest.approx(0.123)
-    assert ms < 200  # should not wait 999s
+    # Should fire shortly after the configured budget — never approach the 999s sleep.
+    assert ms < HEAD_BUDGET_MS["xgb"] + 200, (
+        f"fallback took {ms:.0f}ms, expected ≲ {HEAD_BUDGET_MS['xgb']}+200ms"
+    )
 
 
 def test_decode_pcm_roundtrip():

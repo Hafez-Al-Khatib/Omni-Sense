@@ -62,6 +62,8 @@ class Settings(BaseSettings):
     class Config:
         env_prefix = "OMNI_"
         env_file = ".env"
+        extra = "ignore"   # tolerate extra OMNI_* env vars (MQTT, gateway, etc.)
+                            # consumed by other services without rejecting them here.
 
 
 settings = Settings()

@@ -60,12 +60,17 @@ tracer = get_tracer("omni.eep.orchestrator")
 
 # ─── Configuration ────────────────────────────────────────────────────────────
 
+def _budget(name: str, default_ms: int) -> int:
+    """Per-head budget in ms. Override via HEAD_BUDGET_<NAME>_MS env var."""
+    return int(os.getenv(f"HEAD_BUDGET_{name.upper()}_MS", str(default_ms)))
+
+
 HEAD_BUDGET_MS = {
-    "xgb": 30,
-    "rf":  30,
-    "cnn": 120,   # IEP4 HTTP call — tighter than original 150ms proxy
-    "if":  20,
-    "ood": 40,
+    "xgb": _budget("xgb",  30),
+    "rf":  _budget("rf",   30),
+    "cnn": _budget("cnn", 120),   # IEP4 HTTP call — tighter than original 150ms proxy
+    "if":  _budget("if",   20),
+    "ood": _budget("ood",  40),
 }
 
 FUSION_W = {"xgb": 0.45, "rf": 0.25, "cnn": 0.25, "if": 0.05}
