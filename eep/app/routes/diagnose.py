@@ -45,6 +45,7 @@ from app.services.orchestrator import (
 )
 # Back-compat import alias (kept for tests that patch `call_iep1_embed`).
 from app.services.orchestrator import extract_features_local as call_iep1_embed  # noqa: F401
+from app.services.idempotency import idempotency_service
 from app.services.signal_qa import check_signal_quality
 
 logger = logging.getLogger("eep.diagnose")
@@ -60,18 +61,21 @@ async def diagnose(
         default='{"pipe_material": "PVC", "pressure_bar": 3.0}',
         description="JSON metadata: pipe_material, pressure_bar",
     ),
+    x_idempotency_key: Optional[str] = Header(None, alias="X-Idempotency-Key"),
 ):
     """
     Diagnose infrastructure health from an audio sample.
 
     Upload a 5-second audio recording along with metadata about the
-    recording environment. The system will:
-    1. Validate the audio signal quality
-    2. Extract acoustic features via YAMNet
-    3. Check for Out-of-Distribution environments
-    4. Classify leak probability
+    recording environment. Supports X-Idempotency-Key for reliable retries.
     """
     start_time = time.time()
+
+    # ── Idempotency Check ──
+    if x_idempotency_key:
+        cached = await idempotency_service.get_cached_result(x_idempotency_key)
+        if cached:
+            return {**cached, "idempotency": "hit"}
 
     # ── Parse metadata ──
     try:
@@ -236,7 +240,7 @@ async def diagnose(
         )
 
     # ── Success Response ──
-    return {
+    final_response = {
         **result,
         "hardware_status": quality["hardware_status"],
         "signal_quality": quality,
@@ -244,3 +248,8 @@ async def diagnose(
         "baseline_rms": baseline["baseline_rms"],
         "elapsed_ms": round(elapsed_ms, 1),
     }
+
+    if x_idempotency_key:
+        await idempotency_service.save_result(x_idempotency_key, final_response)
+
+    return final_response

@@ -276,11 +276,15 @@ class WeibullAFT:
         return self
 
     def _predict_scale(self, x_raw: np.ndarray) -> float:
-        """λ_i = exp(μ_i) for a single raw feature vector."""
+        """λ_i = exp(μ_i) for a single raw feature vector. Hardened against overflow."""
         x_std = (x_raw - self._feature_mean) / self._feature_std
         x = np.concatenate([[1.0], x_std])
         mu = float(x @ self._beta)
-        return math.exp(mu)
+        
+        # Numeric Hardening: Cap mu at +/- 20 to prevent exp() overflow/underflow
+        # exp(20) ~ 485 million days, which is physically plenty.
+        mu_clipped = max(-20.0, min(20.0, mu))
+        return math.exp(mu_clipped)
 
     def predict(self, obs: PipeObservation) -> RULPrediction:
         if not self.is_fitted:
@@ -288,18 +292,25 @@ class WeibullAFT:
 
         x_raw = _featurize(obs)
         lam = self._predict_scale(x_raw)   # scale parameter λ
-        k = 1.0 / self._sigma              # shape parameter k
+        k = 1.0 / (self._sigma + 1e-12)    # shape parameter k
 
         # Weibull quantile: S(t) = exp(-(t/λ)^k)  →  t_q = λ * (-log q)^(1/k)
         def quantile(q: float) -> float:
-            return lam * ((-math.log(q + 1e-12)) ** (1.0 / k))
+            # Add epsilon to q to avoid log(0)
+            inner = -math.log(q + 1e-12)
+            # Clip inner to avoid power overflow
+            inner_safe = max(1e-12, min(100.0, inner))
+            return lam * (inner_safe ** (1.0 / k))
 
         rul_median   = quantile(0.50)
         rul_lower_80 = quantile(0.90)    # 10th percentile of survival
         rul_upper_80 = quantile(0.10)    # 90th percentile
 
         # P(T > 30) = exp(-(30/λ)^k)
-        survival_30d = math.exp(-(30.0 / lam) ** k)
+        # Ensure (30/lam) doesn't overflow before exponentiation
+        ratio = 30.0 / (lam + 1e-12)
+        power_term = (ratio ** k)
+        survival_30d = math.exp(-min(100.0, power_term))
 
         # Risk tier
         if rul_median < 30:
@@ -311,13 +322,17 @@ class WeibullAFT:
         else:
             tier, rec = "LOW", "No immediate action required. Re-evaluate in 90 days."
 
+        # Final Production Guard: Ensure all numeric outputs are finite
+        def _safe_float(val: float, default: float = 0.0) -> float:
+            return val if math.isfinite(val) else default
+
         return RULPrediction(
             segment_id=obs.segment_id,
             predicted_at=datetime.now(UTC),
-            rul_days=round(max(0.0, rul_median), 1),
-            rul_lower_80=round(max(0.0, rul_lower_80), 1),
-            rul_upper_80=round(rul_upper_80, 1),
-            survival_30d=round(survival_30d, 4),
+            rul_days=_safe_float(round(max(0.0, rul_median), 1)),
+            rul_lower_80=_safe_float(round(max(0.0, rul_lower_80), 1)),
+            rul_upper_80=_safe_float(round(rul_upper_80, 1)),
+            survival_30d=_safe_float(round(survival_30d, 4), default=0.0),
             risk_tier=tier,
             recommendation=rec,
         )

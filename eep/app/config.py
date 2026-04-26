@@ -56,6 +56,9 @@ class Settings(BaseSettings):
     # Timeouts (seconds)
     IEP2_TIMEOUT: float = 10.0
 
+    # Redis (for idempotency caching)
+    REDIS_URL: str = "redis://redis:6379/0"
+
     class Config:
         env_prefix = "OMNI_"
         env_file = ".env"

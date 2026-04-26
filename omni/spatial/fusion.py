@@ -101,20 +101,26 @@ _MIN_GAP             = timedelta(seconds=6)   # debounce: min time between hypot
 # Stores the most recent raw PCM array for each sensor_id so that TDOA can
 # cross-correlate them.  Frames are evicted after 2 × CORRELATION_WINDOW_S.
 #
-_pcm_cache: dict[str, tuple[np.ndarray, int, datetime]] = {}
-# key: sensor_id → (pcm: float32 ndarray, sr: int, captured_at: datetime)
+_pcm_cache: dict[str, tuple[np.ndarray, int, datetime, float]] = {}
+# key: sensor_id → (pcm, sr, captured_at, drift_ms)
 
 _PCM_TTL_S = CORRELATION_WINDOW_S * 2
 
 
 def cache_pcm(sensor_id: str, pcm: np.ndarray, sr: int, captured_at: datetime) -> None:
     """Store a frame in the PCM cache for TDOA use."""
-    _pcm_cache[sensor_id] = (pcm, sr, captured_at)
+    # Try to get the latest drift from the digital twin store
+    drift = 0.0
+    twin = store.twins().twins.get(sensor_id)
+    if twin and hasattr(twin, 'rtc_drift_ms'):
+        drift = float(twin.rtc_drift_ms)
+    
+    _pcm_cache[sensor_id] = (pcm, sr, captured_at, drift)
 
 
 def _evict_stale_pcm() -> None:
     cutoff = datetime.now(UTC) - timedelta(seconds=_PCM_TTL_S)
-    stale  = [k for k, (_, _, ts) in _pcm_cache.items() if ts < cutoff]
+    stale  = [k for k, (_, _, ts, _) in _pcm_cache.items() if ts < cutoff]
     for k in stale:
         del _pcm_cache[k]
 
@@ -304,6 +310,20 @@ async def on_detection(payload: dict) -> None:
         return
 
     now = datetime.now(UTC)
+    if now - _last_publish < _MIN_GAP:
+        return
+
+    h = await _try_fuse()
+    if h is None:
+        return
+
+    _last_publish = now
+    store.hypotheses().append(h)
+    await get_bus().publish(Topics.HYPOTHESIS, h)
+
+
+def wire() -> None:
+    get_bus().subscribe(Topics.DETECTION, on_detection)
     if now - _last_publish < _MIN_GAP:
         return
 

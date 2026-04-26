@@ -9,3 +9,4 @@ prometheus-client>=0.20
 prometheus-fastapi-instrumentator>=7.0
 soundfile>=0.12
 numpy>=1.26
+redis>=5.0

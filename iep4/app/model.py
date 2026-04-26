@@ -1,10 +1,10 @@
 """
 Omni-Sense CNN Classifier
 ===========================
-Small 2-D CNN trained on mel spectrograms from 5-second accelerometer recordings.
+Small 2-D CNN trained on linear STFT spectrograms from 5-second accelerometer recordings.
 
 Architecture:
-  Input  : mel spectrogram  (n_mels=64, time_frames≈157)  shape (1, 64, 157)
+  Input  : linear STFT spectrogram (n_bins=513, time_frames≈157)  shape (1, 513, 157)
   Block 1: Conv2D(32, 3×3) → BN → ReLU → MaxPool(2×2)     → (32, 32, 78)
   Block 2: Conv2D(64, 3×3) → BN → ReLU → MaxPool(2×2)     → (64, 15, 39)
   Block 3: Conv2D(128, 3×3) → BN → ReLU → GlobalAvgPool   → (128,)

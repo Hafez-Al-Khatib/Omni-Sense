@@ -234,30 +234,35 @@ def localize(
     pcm_b: np.ndarray,
     sr: int,
     segment: PipeSegment,
+    drift_a_ms: float = 0.0,
+    drift_b_ms: float = 0.0,
 ) -> TDOAResult:
-    """Estimate leak position on a pipe segment from two simultaneous recordings.
+    """Estimate leak position on a pipe segment from two recordings.
+    Hardened against RTC clock drift using reported telemetry offsets.
 
     Parameters
     ----------
     pcm_a, pcm_b : np.ndarray
-        Simultaneously captured vibration frames from sensor A and B.
-        Must be float32, same length, same sample rate.
+        Simultaneously captured vibration frames.
     sr : int
-        Sample rate in Hz (e.g. 3200 for ADXL345 at full ODR).
+        Sample rate (Hz).
     segment : PipeSegment
         Pipe geometry descriptor.
-
-    Returns
-    -------
-    TDOAResult
-        Contains delay estimate, GCC-PHAT confidence, and lat/lon if valid.
+    drift_a_ms, drift_b_ms : float
+        Clock drift in milliseconds reported by sensors A and B.
     """
     v = wave_speed(segment.pipe_material)
 
-    # Max possible delay = pipe_length / wave_speed (a tiny margin added)
+    # Max possible delay = pipe_length / wave_speed
     max_delay = segment.pipe_length_m / v * 1.2
 
-    delay_s, peak = gcc_phat(pcm_a, pcm_b, sr=sr, max_delay_s=max_delay)
+    # lag_s is the relative shift found by correlation
+    lag_s, peak = gcc_phat(pcm_a, pcm_b, sr=sr, max_delay_s=max_delay)
+
+    # Correct for known clock drift: True delay = lag + (drift_B - drift_A)
+    # Drift is in ms, convert to seconds
+    drift_corr_s = (drift_b_ms - drift_a_ms) / 1000.0
+    delay_s = lag_s + drift_corr_s
 
     dist_from_a = segment.position_from_a(delay_s)
 
@@ -265,9 +270,12 @@ def localize(
     if dist_from_a is not None:
         lat, lon = segment.to_latlon(dist_from_a)
 
-    # Uncertainty grows with sample period (half a sample precision)
+    # Uncertainty = physical_error (0.5 sample) + clock_sync_error (sum of drifts)
     sample_period = 1.0 / sr
-    uncertainty_m = (v * sample_period / 2.0)   # propagated from ±0.5 sample timing error
+    physical_unc = (v * sample_period / 2.0)
+    # Assume 10% of reported drift is residual jitter
+    sync_unc = v * (abs(drift_a_ms) + abs(drift_b_ms)) * 0.0001 
+    uncertainty_m = physical_unc + sync_unc
 
     result = TDOAResult(
         segment_id=segment.segment_id,

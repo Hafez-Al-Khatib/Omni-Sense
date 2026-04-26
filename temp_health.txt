@@ -1,6 +1,0 @@
-    healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')" ]
-      interval: 30s
-      timeout: 10s
-      start_period: 20s  # CNN model load time
-      retries: 3

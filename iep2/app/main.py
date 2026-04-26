@@ -217,7 +217,7 @@ async def calibrate(request: CalibrateRequest):
     Dynamically calibrate OOD detection thresholds.
 
     Accepts a set of ambient embeddings and adjusts the
-    Isolation Forest threshold to accommodate the new environment.
+    CNN Autoencoder threshold to accommodate the new environment.
     """
     if not ood_detector.is_loaded:
         raise HTTPException(status_code=503, detail="OOD model not loaded yet")
