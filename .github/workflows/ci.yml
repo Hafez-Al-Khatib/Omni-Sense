@@ -23,6 +23,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest requests httpx pytest-asyncio numpy soundfile
 
+      - name: Create CI environment file
+        run: |
+          cp .env.example .env
+          sed -i 's/GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=admin/' .env
+
       - name: Start Docker Compose stack
         run: |
           docker compose up --build -d
