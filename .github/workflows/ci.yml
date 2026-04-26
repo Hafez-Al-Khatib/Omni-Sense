@@ -23,6 +23,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install pytest requests httpx pytest-asyncio numpy soundfile
 
+      - name: Start Docker Compose stack
+        run: |
+          docker compose up --build -d
+          sleep 30
+          docker compose ps
+
       - name: Run pytest
         run: |
           pytest tests/ -v
