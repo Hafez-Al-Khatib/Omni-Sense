@@ -372,8 +372,10 @@ async def handle_frame(payload: dict) -> None:
         # This must happen before any await so the cache is populated even
         # if a later await raises; captured_at is the edge timestamp.
         try:
+            log.debug("Caching PCM for sensor %s", frame.sensor_id)
             _cache_pcm(frame.sensor_id, pcm, sr, frame.captured_at)
-        except Exception:
+        except Exception as exc:
+            log.error("PCM cache failed: %s", exc)
             pass   # never block detection on cache failures
 
         # ── Resolve live SCADA pressure for this site ─────────────────────
@@ -486,6 +488,7 @@ async def handle_frame(payload: dict) -> None:
                 "ood": t_ood,
             },
         )
+        log.debug("Publishing detection: sensor=%s leak=%s p=%.3f", result.sensor_id, result.is_leak, result.fused_p_leak)
         await get_bus().publish(Topics.DETECTION, result)
 
 

@@ -56,6 +56,9 @@ mlflow.db
 
 # Documents
 *.docx
+*.xlsx
+*.xls
+~$*
 
 # Test / Coverage
 .coverage

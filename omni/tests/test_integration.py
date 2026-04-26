@@ -48,8 +48,8 @@ async def test_end_to_end_leak_detected_and_dispatched():
 
     bus = bus_mod.get_bus()
 
-    # Seed twins for two Hamra sensors
-    for sid, lat, lon in [("S-A", 33.8978, 35.4828), ("S-B", 33.8985, 35.4845)]:
+    # Seed twins for two Hamra sensors matching fusion.PIPE_SEGMENTS
+    for sid, lat, lon in [("S-HAMRA-001", 33.8978, 35.4828), ("S-HAMRA-002", 33.8985, 35.4845)]:
         await store.twins().upsert_twin(
             SensorTwin(sensor_id=sid, site_id="beirut/hamra", lat=lat, lon=lon)
         )
@@ -58,10 +58,10 @@ async def test_end_to_end_leak_detected_and_dispatched():
 
     # Run two leak sensors for a short burst (fast cadence)
     await asyncio.gather(
-        run_sensor("S-A", "beirut/hamra", 33.8978, 35.4828, [(4.0, "leak")], cadence_s=0.3),
-        run_sensor("S-B", "beirut/hamra", 33.8985, 35.4845, [(4.0, "leak")], cadence_s=0.3),
+        run_sensor("S-HAMRA-001", "beirut/hamra", 33.8978, 35.4828, [(4.0, "leak")], cadence_s=0.3),
+        run_sensor("S-HAMRA-002", "beirut/hamra", 33.8985, 35.4845, [(4.0, "leak")], cadence_s=0.3),
     )
-    await asyncio.sleep(1.5)  # drain pipeline
+    await asyncio.sleep(3.0)  # drain pipeline
 
     bus.stop()
     bus_task.cancel()

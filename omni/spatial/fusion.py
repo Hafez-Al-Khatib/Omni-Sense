@@ -166,8 +166,8 @@ def _try_tdoa(
             log.debug("TDOA skipped %s-%s: PCM not cached", sid_a, sid_b)
             continue
 
-        pcm_a, sr_a, ts_a = _pcm_cache[sid_a]
-        pcm_b, sr_b, ts_b = _pcm_cache[sid_b]
+        pcm_a, sr_a, ts_a, drift_a = _pcm_cache[sid_a]
+        pcm_b, sr_b, ts_b, drift_b = _pcm_cache[sid_b]
 
         # Require frames captured within the correlation window
         age_diff = abs((ts_a - ts_b).total_seconds())
@@ -184,7 +184,7 @@ def _try_tdoa(
             pcm_a, pcm_b = pcm_a[:n], pcm_b[:n]
 
         result = localize(pcm_a.astype(np.float32), pcm_b.astype(np.float32),
-                          sr=sr, segment=segment)
+                          sr=sr, segment=segment, drift_a_ms=drift_a, drift_b_ms=drift_b)
         tdoa_results.append(result)
 
     if not tdoa_results:
@@ -261,6 +261,7 @@ async def _try_fuse() -> LeakHypothesis | None:
     hot = await store.twins().all_recent_leaks(
         min_p=0.55, horizon_s=CORRELATION_WINDOW_S
     )
+    log.debug("Spatial fusion check: hot_detections=%d", len(hot))
     if len(hot) < 2:
         return None
 
@@ -310,20 +311,6 @@ async def on_detection(payload: dict) -> None:
         return
 
     now = datetime.now(UTC)
-    if now - _last_publish < _MIN_GAP:
-        return
-
-    h = await _try_fuse()
-    if h is None:
-        return
-
-    _last_publish = now
-    store.hypotheses().append(h)
-    await get_bus().publish(Topics.HYPOTHESIS, h)
-
-
-def wire() -> None:
-    get_bus().subscribe(Topics.DETECTION, on_detection)
     if now - _last_publish < _MIN_GAP:
         return
 
