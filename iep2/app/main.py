@@ -5,7 +5,7 @@ Two-stage inference pipeline:
   Stage 1: Autoencoder (OOD detection / safety watchdog)
   Stage 2: XGBoost (leak classification with calibrated probabilities)
 
-Accepts 208-d physics features (DSP) + metadata, returns diagnosis.
+Accepts 39-d physics features (DSP) + metadata from EEP, returns diagnosis.
 """
 
 import logging

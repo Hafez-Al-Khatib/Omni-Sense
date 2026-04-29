@@ -1,8 +1,9 @@
 # IEP2 Model Report
 
-**Trained:** 2026-04-27
+**Trained:** 2026-04-30
 **Pipeline:** `scripts/train_models.py` (recording-level aggregation, 5-fold stratified CV)
-**Dataset source:** `data/synthesized/embeddings.parquet`
+**Dataset source:** `data/synthesized/eep_features.parquet` (39-d EEP-aligned features)
+**Feature extractor:** `omni/eep/features.py` (39-d pure NumPy — matches production EEP inference)
 
 ---
 
@@ -70,13 +71,12 @@ OOB score: **0.9880** (matches XGBoost). Used for ensemble fusion in EEP.
 
 **ONNX export crashes on Windows** (`onnxmltools` / `xgboost` DLL
 incompatibility — segfault). The joblib artifacts are saved and IEP2
-uses them by default. To export ONNX for deployment, run the script in
-the iep2 Docker container or on Linux:
+uses them by default. To export ONNX for deployment, run the standalone
+export script in the iep2 Linux container:
 
 ```bash
-docker compose run --rm iep2 python /app/../scripts/train_models.py \
-  --embeddings /app/../data/synthesized/embeddings.parquet \
-  --output-dir /app/models
+docker compose run --rm iep2 python /app/../scripts/export_onnx.py \
+  --models-dir /app/models
 ```
 
 ---
@@ -84,13 +84,21 @@ docker compose run --rm iep2 python /app/../scripts/train_models.py \
 ## Reproduce
 
 ```bash
-py -3.12 scripts/train_models.py \
-  --embeddings data/synthesized/embeddings.parquet \
-  --output-dir iep2/models
-```
+# 1. Augment audio clips (LeakDB + MIMII hard negatives)
+py -3.12 scripts/augment_data.py --input-dir Processed_audio_16k --output-dir data/synthesized
+py -3.12 scripts/extract_mimii_negatives.py --output-dir data/synthesized
 
-To get a fresh embeddings parquet:
-1. `py -3.12 scripts/augment_data.py --input-dir Processed_audio_16k --output-dir data/synthesized`
-2. `py -3.12 scripts/extract_mimii_negatives.py --output-dir data/synthesized`  (adds Normal_Operation hard negatives)
-3. `docker compose up iep1 -d` *(if iep1 is reinstated for embedding)*  **OR** run a local feature extractor.
-4. `py -3.12 scripts/extract_embeddings.py --input-dir data/synthesized --output data/synthesized/embeddings.parquet`
+# 2. Extract 39-d EEP-aligned features (matches production inference)
+py -3.12 scripts/extract_eep_features.py \
+  --input-dir data/synthesized \
+  --output    data/synthesized/eep_features.parquet
+
+# 3. Train models
+py -3.12 scripts/train_models.py \
+  --embeddings data/synthesized/eep_features.parquet \
+  --output-dir iep2/models
+
+# 4. Export ONNX (must run in Linux / Docker due to Windows DLL issue)
+docker compose run --rm iep2 python /app/../scripts/export_onnx.py \
+  --models-dir /app/models
+```

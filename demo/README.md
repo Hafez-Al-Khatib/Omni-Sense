@@ -64,7 +64,7 @@ When EEP is unavailable, the dashboard automatically falls back to **demo mode**
 ## Architecture
 
 ```
-WAV Audio → EEP Signal QA → DSP Features (208-d)
+WAV Audio → EEP Signal QA → DSP Features (39-d)
     ↓
     ├→ IEP2 (XGBoost + RF ensemble) ─┐
     ├→ IEP4 (CNN Classifier)         ├→ Weighted Ensemble → Diagnosis
