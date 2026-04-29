@@ -1,7 +1,7 @@
 """
 Omni EEP Head Training Script
 ================================
-Trains XGBoost + Random Forest classifiers on the 39-d DSP physics features
+Trains XGBoost + Random Forest classifiers on the 208-d DSP physics features
 extracted by ``omni/eep/features.py`` (pure numpy, no YAMNet dependency).
 Exports ONNX models to ``omni/models/`` for runtime inference by the EEP
 orchestrator (via ONNX Runtime — no xgboost/sklearn needed at inference).

@@ -6,7 +6,7 @@ Professional Streamlit dashboard for the Omni-Sense acoustic leak diagnostics pl
 
 ### Installation
 ```bash
-cd /sessions/funny-admiring-dirac/mnt/omni-sense/demo
+cd demo
 pip install -r requirements.txt
 ```
 
@@ -64,12 +64,13 @@ When EEP is unavailable, the dashboard automatically falls back to **demo mode**
 ## Architecture
 
 ```
-WAV Audio → Signal Preprocessing → IEP1 Features (100-d)
+WAV Audio → EEP Signal QA → DSP Features (208-d)
     ↓
-    ├→ IEP2 (XGBoost) ─┐
-    ├→ IEP4 (RF)      ├→ IEP3 (Ensemble) → Diagnosis
-    └→ Physics Check  ├→ OOD Detection    (Leak/No Leak)
-                      └→ Confidence Score
+    ├→ IEP2 (XGBoost + RF ensemble) ─┐
+    ├→ IEP4 (CNN Classifier)         ├→ Weighted Ensemble → Diagnosis
+    └→ Autoencoder OOD Watchdog      ┘                      (Leak/No_Leak)
+         ↓ high-confidence fault
+        IEP3 (Dispatch / Active Learning)
 ```
 
 ## Requirements
