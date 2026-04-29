@@ -19,6 +19,13 @@ import joblib
 import numpy as np
 
 
+def _n_features(model) -> int:
+    """Read feature count from fitted model (sklearn API)."""
+    if hasattr(model, "n_features_in_"):
+        return int(model.n_features_in_)
+    raise AttributeError(f"Cannot determine n_features_in_ from {type(model)}")
+
+
 def export_xgboost(model, output_path: Path, n_features: int) -> None:
     import xgboost as xgb
     from onnxmltools.convert.xgboost.operator_converters.XGBoost import convert_xgboost
@@ -73,12 +80,7 @@ def main():
     models_dir = Path(args.models_dir)
     print(f"Models directory: {models_dir.resolve()}")
 
-    # Determine feature dimensions from label_map.json or fall back to defaults
-    # XGBoost and RF take 208 DSP features + 2 metadata = 210 total
     label_map_path = models_dir / "label_map.json"
-    n_feat_total = 210  # 208 vibration features + 2 metadata (pipe_material, pressure_bar)
-    n_emb = 208
-
     if label_map_path.exists():
         with open(label_map_path) as f:
             raw = json.load(f)
@@ -95,7 +97,7 @@ def main():
         print(f"\nExporting XGBoost from {xgb_joblib}...")
         try:
             model = joblib.load(xgb_joblib)
-            export_xgboost(model, xgb_onnx, n_features=n_feat_total)
+            export_xgboost(model, xgb_onnx, n_features=_n_features(model))
         except Exception as e:
             print(f"  ERROR: {e}", file=sys.stderr)
             errors.append(f"XGBoost: {e}")
@@ -109,7 +111,7 @@ def main():
         print(f"\nExporting Random Forest from {rf_joblib}...")
         try:
             model = joblib.load(rf_joblib)
-            export_rf(model, rf_onnx, n_features=n_feat_total)
+            export_rf(model, rf_onnx, n_features=_n_features(model))
         except Exception as e:
             print(f"  ERROR: {e}", file=sys.stderr)
             errors.append(f"RandomForest: {e}")
@@ -123,7 +125,7 @@ def main():
         print(f"\nExporting Isolation Forest from {if_joblib}...")
         try:
             model = joblib.load(if_joblib)
-            export_isolation_forest(model, if_onnx, n_features=n_emb)
+            export_isolation_forest(model, if_onnx, n_features=_n_features(model))
         except Exception as e:
             print(f"  ERROR: {e}", file=sys.stderr)
             errors.append(f"IsolationForest: {e}")

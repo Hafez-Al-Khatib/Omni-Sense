@@ -70,9 +70,9 @@ OOB score: **0.9880** (matches XGBoost). Used for ensemble fusion in EEP.
 ## Known issues
 
 **ONNX export crashes on Windows** (`onnxmltools` / `xgboost` DLL
-incompatibility — segfault). The joblib artifacts are saved and IEP2
-uses them by default. To export ONNX for deployment, run the standalone
-export script in the iep2 Linux container:
+incompatibility — segfault). The joblib artifacts are saved as a fallback.
+`skl2onnx` and `onnxmltools` are included in `iep2/requirements.txt` so the
+Linux container can run the ONNX export without extra installs:
 
 ```bash
 docker compose run --rm iep2 python /app/../scripts/export_onnx.py \
