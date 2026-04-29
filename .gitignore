@@ -70,8 +70,10 @@ monitoring/grafana/data/
 
 *.zip
 
-# Temporarily for progress knowledge base
-*.md
+# Personal scratch notes (NEVER use *.md catchall — that hides README, MODEL_REPORT, etc.)
+NOTES_LOCAL.md
+SCRATCH.md
+TODO_LOCAL.md
 
 .claude/
 "certs/*.key" 

@@ -1,1 +1,5 @@
-{"0": "Leak", "1": "No_Leak", "_decision_threshold": 0.5}
+{
+  "0": "Leak",
+  "1": "No_Leak",
+  "_decision_threshold": 0.9520958083832335
+}
