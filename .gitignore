@@ -41,10 +41,10 @@ data/synthesized/
 *.ogg
 *.mp3
 *.csv
-# Model artifacts (large binaries)
-iep2/models/*.onnx
-iep2/models/*.joblib
-iep2/models/*.pkl
+# Model artifacts (large binaries - allowed for production demo)
+!iep2/models/*.onnx
+!iep2/models/*.joblib
+!iep2/models/*.pkl
 mlruns/
 mlflow.db
 
