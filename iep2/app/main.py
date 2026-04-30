@@ -26,7 +26,7 @@ if _PROJ_ROOT not in sys.path:
 from app.calibration import CalibrationManager
 from app.classifier import LeakClassifier
 from app.drift_monitor import drift_monitor
-from app.autoencoder_ood_detector import get_autoencoder_detector
+from app.ood_detector import OODDetector
 from app.schemas import (
     CalibrateRequest,
     CalibrateResponse,
@@ -34,16 +34,16 @@ from app.schemas import (
     DiagnoseResponse,
     HealthResponse,
 )
-from omni.common.config import OOD_AE_THRESHOLD
+from omni.common.config import OOD_IF_THRESHOLD
 
 # ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("iep2")
 
 # ─── Prometheus Metrics ──────────────────────────────────────────────────────
-OOD_RECON_ERROR = Gauge(
-    "ood_autoencoder_mse",
-    "Latest CNN Autoencoder reconstruction error (OOD proxy)",
+OOD_ANOMALY_SCORE = Gauge(
+    "iep2_ood_anomaly_score",
+    "Latest Isolation Forest anomaly score (OOD proxy)",
 )
 # ... [rest of metrics omitted for brevity in thought, but included in implementation] ...
 PREDICTION_CONFIDENCE = Histogram(
@@ -106,14 +106,14 @@ def _check_scada_consistency(
 # ─── App ──────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="Omni-Sense IEP2 — Diagnostic & Safety Engine",
-    description="OOD-aware acoustic classification: CNN Autoencoder + XGBoost.",
+    description="OOD-aware acoustic classification: Isolation Forest + XGBoost.",
     version="0.2.0",
 )
 
 Instrumentator().instrument(app).expose(app)
 
 # Service singletons
-ood_detector = get_autoencoder_detector()
+ood_detector = OODDetector()
 classifier = LeakClassifier()
 calibration_mgr = CalibrationManager()
 
@@ -125,7 +125,7 @@ _CENTROID_PATH = Path("models/centroid.npy")
 async def startup():
     """Load models on startup."""
     try:
-        logger.info("Loading Autoencoder OOD model...")
+        logger.info("Loading Isolation Forest OOD model...")
         ood_detector.load()
         logger.info("Loading Leak Classifier ensemble...")
         classifier.load()
@@ -158,26 +158,25 @@ async def diagnose(request: DiagnoseRequest):
     embedding = np.array(request.embedding, dtype=np.float32)
 
     with IEP2_INFERENCE_DURATION.time():
-        # ── Stage 1: OOD Detection (Autoencoder MSE) ──
-        # Note: Autoencoder usually works on spectrograms; if IEP2 receives
-        # embeddings, this uses the compatible 'score()' method.
+        # ── Stage 1: OOD Detection (Isolation Forest) ──
         anomaly_score = ood_detector.score(embedding)
-        OOD_RECON_ERROR.set(float(anomaly_score))
+        OOD_ANOMALY_SCORE.set(float(anomaly_score))
         
         # Use centralized threshold from omni.common.config
-        is_ood = anomaly_score > OOD_AE_THRESHOLD
+        # Higher = more normal; lower (more negative) = more anomalous.
+        is_ood = anomaly_score < OOD_IF_THRESHOLD
 
         if is_ood:
             OOD_REJECTIONS.inc()
             logger.warning(
-                f"OOD rejection: MSE={anomaly_score:.4f}, threshold={OOD_AE_THRESHOLD}"
+                f"OOD rejection: score={anomaly_score:.4f}, threshold={OOD_IF_THRESHOLD}"
             )
             return JSONResponse(
                 status_code=422,
                 content={
                     "error": "Out-of-Distribution Acoustic Environment",
                     "anomaly_score": float(anomaly_score),
-                    "threshold": float(OOD_AE_THRESHOLD),
+                    "threshold": float(OOD_IF_THRESHOLD),
                 },
             )
 
