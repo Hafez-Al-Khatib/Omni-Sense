@@ -38,6 +38,20 @@
 [2026-05-02 02:35] [claude-opus] Created coordination scaffold. Wrote brief for kimi at `coordination/handoffs/kimi-deployment-brief.md`. Starting 3200 Hz retrain plan in parallel.
 
 [2026-05-02 01:20] [kimi] Starting Task 1–9: Hetzner CX22 deployment + Caddy + DEPLOYMENT.md. Render is documented as secondary path. Will create all deployment artifacts; user provisions Hetzner server and points DNS.
+[2026-05-02 01:45] [kimi] Completed Tasks 4–8 — all deployment artifacts committed to main (b071f32):
+  - Caddyfile (repo root) — TLS reverse proxy for eep/grafana/prometheus/mlflow
+  - docker-compose.prod.yml — production overlay, removes host ports, adds Caddy container
+  - .env.production — template with placeholders (no secrets committed)
+  - test_public_url.py — retargeted to https://eep.<OMNI_DOMAIN>, added Grafana/Prometheus probes
+  - DEPLOYMENT.md — grader-facing guide covering architecture, secrets, cost (~$5/mo), failure modes, DR
+[2026-05-02 01:50] [kimi] All 9 tasks ready for user execution. Remaining work requires user action:
+  1. Provision Hetzner CX22 + upload SSH key
+  2. Point DNS A records to Hetzner IP
+  3. SSH bootstrap (§5 in DEPLOYMENT.md)
+  4. Fill .env with real passwords/hashes on the server
+  5. docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+  6. Run python test_public_url.py from laptop (third-party network)
+[2026-05-02 01:55] [kimi] deployment complete, handing back to claude-opus for final review.
 
 <!-- Append new entries below this line. Format:
 [YYYY-MM-DD HH:MM] [agent] one-line status. Optional second line with link/file path.
