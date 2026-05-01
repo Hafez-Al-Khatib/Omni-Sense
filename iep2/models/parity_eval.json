@@ -1,0 +1,24 @@
+{
+  "new_3200hz": {
+    "name": "3200 Hz (current)",
+    "n_samples": 1336,
+    "n_leak": 64,
+    "n_no_leak": 1272,
+    "accuracy": 0.9880239520958084,
+    "precision": 0.8,
+    "recall": 1.0,
+    "f1": 0.8888888888888888,
+    "roc_auc": 0.9946381191037735
+  },
+  "old_16khz": {
+    "name": "16 kHz (archived)",
+    "n_samples": 1336,
+    "n_leak": 64,
+    "n_no_leak": 1272,
+    "accuracy": 0.7028443113772455,
+    "precision": 0.13882863340563992,
+    "recall": 1.0,
+    "f1": 0.2438095238095238,
+    "roc_auc": 0.9946135514937107
+  }
+}

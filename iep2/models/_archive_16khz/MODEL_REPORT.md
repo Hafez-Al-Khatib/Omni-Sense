@@ -1,27 +1,9 @@
 # IEP2 Model Report
 
-**Trained:** 2026-05-02 (3200 Hz deployment-rate parity rebuild)
+**Trained:** 2026-04-30
 **Pipeline:** `scripts/train_models.py` (recording-level aggregation, 5-fold stratified CV)
-**Dataset source:** `data/synthesized/eep_features_3200hz.parquet` (39-d features at deployment sample rate)
-**Feature extractor:** `omni/eep/features.py` (39-d pure NumPy — matches both production EEP inference and the C++ on-device extractor in `hardware/esp32/omni_sensor/omni_features.cpp`)
-**Pre-rebuild baseline (16 kHz) archived at:** `iep2/models/_archive_16khz/` for comparison and rollback.
-
-## Why retrained at 3200 Hz
-
-The ESP32-S3 + ADXL345 sensor captures at 3200 Hz (Nyquist 1600 Hz — covers the full leak band: turbulent flow 50–500 Hz, orifice whistle 500–3000 Hz partially, crack tick 100–2000 Hz). The original models were trained on the 16 kHz LeakDB corpus, which produces a different feature distribution than the device-rate audio that actually arrives at the cloud. Decision documented in `coordination/decisions.md`.
-
-### Deployment-rate parity evidence (`scripts/eval_deployment_parity.py`)
-Both model versions evaluated on the same 1336 recordings extracted at 3200 Hz:
-
-| Metric | 16 kHz models on 3200 Hz features | 3200 Hz models on 3200 Hz features | Δ |
-|---|---:|---:|---:|
-| Accuracy | 0.7028 | 0.9880 | **+0.2852** |
-| Precision | 0.1388 | 0.8000 | **+0.6612** |
-| Recall | 1.0000 | 1.0000 | 0.0000 |
-| F1 | 0.2438 | 0.8889 | **+0.6451** |
-| ROC-AUC | 0.9946 | 0.9946 | 0.0000 |
-
-**Interpretation:** AUC is identical because the 16 kHz models can still rank-order leak vs no-leak on shifted features. But the production decision threshold (0.952, calibrated against the 16 kHz feature distribution) is too aggressive for the shifted distribution: precision falls from 0.80 to 0.14. **Operators would have seen 5.7× more false alarms in production without this retrain.**
+**Dataset source:** `data/synthesized/eep_features.parquet` (39-d EEP-aligned features)
+**Feature extractor:** `omni/eep/features.py` (39-d pure NumPy — matches production EEP inference)
 
 ---
 

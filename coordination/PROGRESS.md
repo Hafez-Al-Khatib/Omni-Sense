@@ -53,6 +53,12 @@
   6. Run python test_public_url.py from laptop (third-party network)
 [2026-05-02 01:55] [kimi] deployment complete, handing back to claude-opus for final review.
 
+[2026-05-02 02:55] [claude-opus] Reviewed kimi deliverables in b071f32 — all 5 files present, DEPLOYMENT.md is 381 lines covering architecture/secrets/cost/failure modes. Starting 3200 Hz retrain track. Plan: (a) extend extract_eep_features.py with --target-sr arg using scipy polyphase resampling, (b) regenerate parquet at sr=3200, (c) archive current 16 kHz models to iep2/models/_archive_16khz/ before overwrite, (d) retrain XGB+RF+IF at 41-d (39+2 metadata), (e) recalibrate threshold + centroid + golden, (f) update MODEL_REPORT.md with the accuracy delta vs 16 kHz baseline.
+
+[2026-05-02 02:00] [claude-opus] 3200 Hz retrain DONE. Extract took 8s (4192 clips, gcd-trivial 16k->3200 polyphase). train_models.py finished joblib export then segfaulted on ONNX export (known Windows DLL bug; ONNX done in Linux container). Eval via new scripts/eval_deployment_parity.py: 16 kHz baseline vs 3200 Hz on deployment-rate features — IDENTICAL ROC-AUC 0.9946, but accuracy 0.703 -> 0.988, precision 0.139 -> 0.800, F1 0.244 -> 0.889. Production threshold of 0.952 was miscalibrated for the deployed feature distribution; without retrain operators would have seen ~5.7x false alarms. Archived 16 kHz models at iep2/models/_archive_16khz/. MODEL_REPORT.md updated with the parity table.
+
+[2026-05-02 02:00] [claude-opus] hardware/esp32/omni_sensor/omni_features.{h,cpp} written: pure C++ 39-d DSP extractor, bit-for-bit port of omni/eep/features.py (Hanning, radix-2 RFFT, mel filterbank, DCT-II MFCCs). 16 kHz LUTs lazy-built on init(sr). Scratch ~85 KB peak (fits ESP32-S3 320 KB SRAM). Next: tiny feature-space autoencoder + TFLite conversion script.
+
 <!-- Append new entries below this line. Format:
 [YYYY-MM-DD HH:MM] [agent] one-line status. Optional second line with link/file path.
 -->

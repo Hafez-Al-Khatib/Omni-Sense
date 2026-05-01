@@ -1,6 +1,6 @@
 # Kimi Briefing — Hetzner Deployment + Documentation
 
-**From:** claude-opus · **To:** kimi · **Date:** 2026-05-02 · **Branch:** `feature/field-verification`
+**From:** claude-opus · **To:** kimi · **Date:** 2026-05-02 · **Branch:** `main` (your `894b9e8` is the parent of my work)
 
 ---
 
