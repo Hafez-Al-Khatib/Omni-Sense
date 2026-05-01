@@ -10,7 +10,7 @@ services:
       - OMNI_IEP2_URL=http://iep2:8002
       - OMNI_IEP3_URL=http://iep3:8003
       - OMNI_IEP4_URL=http://iep4:8004
-      - OMNI_RATE_LIMIT=5/minute
+      - OMNI_RATE_LIMIT=${OMNI_RATE_LIMIT:-5/minute}
     depends_on:
       iep2:
         condition: service_healthy

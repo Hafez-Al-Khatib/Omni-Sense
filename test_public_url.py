@@ -50,7 +50,7 @@ def _get(path: str, **kwargs):
 
 def test_health(max_attempts: int = 8) -> bool:
     """Poll /health with exponential backoff (Render free-tier cold-start)."""
-    print(f"\n→ GET {URL}/health")
+    print(f"\n-> GET {URL}/health")
     for attempt in range(1, max_attempts + 1):
         try:
             r = _get("/health", timeout=15)
@@ -82,7 +82,7 @@ def test_health(max_attempts: int = 8) -> bool:
 
 
 def test_diagnose(wav_path: str) -> bool:
-    print(f"\n→ POST {URL}/api/v1/diagnose  (audio={wav_path})")
+    print(f"\n-> POST {URL}/api/v1/diagnose  (audio={wav_path})")
     try:
         with open(wav_path, "rb") as f:
             files = {"audio": f}
@@ -101,7 +101,7 @@ def test_diagnose(wav_path: str) -> bool:
         print(f"  Connection Error: {e}")
         return False
     except requests.exceptions.Timeout:
-        print(f"  Timeout — Render free tier has a ~30-60s cold-start limit.")
+        print("  Timeout — Render free tier has a ~30-60s cold-start limit.")
         return False
     except Exception as e:
         print(f"  Unexpected error: {type(e).__name__}: {e}")
@@ -125,7 +125,7 @@ def warm_all():
         "https://omni-sense-iep4.onrender.com",
     ]
     for url in downstream:
-        print(f"\n→ Waking {url}/health")
+        print(f"\n-> Waking {url}/health")
         try:
             requests.get(f"{url}/health", timeout=30)
         except Exception as e:
