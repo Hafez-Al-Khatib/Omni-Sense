@@ -77,6 +77,7 @@ def main():
     )
     parser.add_argument("--input-dir",  default="Processed_audio_16k")
     parser.add_argument("--output-dir", default="data/golden")
+    parser.add_argument("--windows-per-file", type=int, default=3, help="Number of 5s windows to extract per file.")
     args = parser.parse_args()
 
     input_dir  = Path(args.input_dir)
@@ -88,48 +89,83 @@ def main():
         print(f"[ERROR] No WAV files found in {input_dir}")
         return
 
-    # Pick sensor-A1 recordings only, one per (fault_class, topology, condition)
-    seen: set[tuple] = set()
-    selected: list[dict] = []
+    import librosa
+    import soundfile as sf
+    import numpy as np
+    from extract_dsp_features import extract_dsp_features
+
+    TARGET_SR = 16000
+    DURATION_S = 5.0
+    SAMPLES_PER_WINDOW = int(TARGET_SR * DURATION_S)
+
+    selected_rows = []
+    print(f"Processing {len(source_wavs)} source recordings...")
 
     for wav_path in source_wavs:
         meta = parse_wav_metadata(wav_path)
-        if meta["sensor_id"] != "A1":
-            continue
-        key = (meta["fault_class"], meta["topology"], meta["condition"])
-        if key in seen:
-            continue
-        seen.add(key)
-        selected.append({"path": wav_path, **meta})
+        
+        try:
+            # We use a temp file logic or just load and slice
+            y, sr = librosa.load(wav_path, sr=TARGET_SR)
+            total_samples = len(y)
+            
+            # Calculate non-overlapping windows
+            max_windows = total_samples // SAMPLES_PER_WINDOW
+            num_windows = min(args.windows_per_file, max_windows)
+            
+            if num_windows == 0:
+                print(f"  [SKIP] {wav_path.name}: too short ({total_samples} samples)")
+                continue
 
-    if not selected:
-        print("[ERROR] No valid A1 recordings found.")
+            for i in range(num_windows):
+                start = i * SAMPLES_PER_WINDOW
+                end = start + SAMPLES_PER_WINDOW
+                window = y[start:end]
+                
+                window_filename = f"golden_{wav_path.stem}_win{i}.wav"
+                dest = output_dir / window_filename
+                sf.write(dest, window, TARGET_SR)
+                
+                # Extract DSP features for this window
+                # (extract_dsp_features expects a path, so we use the newly saved file)
+                embeddings = extract_dsp_features(dest)
+                
+                row = {
+                    "filename":    window_filename,
+                    "label":       meta["fault_class"],
+                    "topology":    meta["topology"],
+                    "condition":   meta["condition"],
+                    "sensor_id":   meta["sensor_id"],
+                    "pipe_material": meta["topology"], # Fallback for feature prep
+                    "pressure_bar": _CONDITION_PRESSURE.get(meta["condition"], 3.0),
+                }
+                
+                # Add embedding columns
+                for idx, val in enumerate(embeddings):
+                    row[f"embedding_{idx}"] = val
+                    
+                selected_rows.append(row)
+        except Exception as e:
+            print(f"  [ERROR] Processing {wav_path.name}: {e}")
+
+    if not selected_rows:
+        print("[ERROR] No samples processed.")
         return
 
-    # Copy WAVs and write manifest
-    rows = []
-    for item in selected:
-        dest = output_dir / item["path"].name
-        shutil.copy2(item["path"], dest)
-        rows.append({
-            "filename":    item["path"].name,
-            "label":       item["fault_class"],
-            "topology":    item["topology"],
-            "condition":   item["condition"],
-            "pressure_bar": _CONDITION_PRESSURE.get(item["condition"], 3.0),
-        })
-
     csv_path = output_dir / "golden_dataset_v1.csv"
+    # Dynamic fieldnames based on number of embeddings
+    emb_cols = [f"embedding_{i}" for i in range(len(embeddings))]
+    fieldnames = ["filename", "label", "topology", "condition", "sensor_id", "pipe_material", "pressure_bar"] + emb_cols
+    
     with open(csv_path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=["filename", "label", "topology",
-                                                "condition", "pressure_bar"])
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
-        writer.writerows(rows)
+        writer.writerows(selected_rows)
 
     from collections import Counter
-    label_counts = Counter(r["label"] for r in rows)
+    label_counts = Counter(r["label"] for r in selected_rows)
 
-    print(f"\nGolden dataset: {len(rows)} samples → {output_dir}")
+    print(f"\nExpanded Golden dataset: {len(selected_rows)} samples → {output_dir}")
     print(f"Manifest: {csv_path}")
     print("\nDistribution:")
     for label, count in sorted(label_counts.items()):
