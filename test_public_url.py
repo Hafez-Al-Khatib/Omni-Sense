@@ -1,7 +1,7 @@
 """
 Smoke test for Omni-Sense public deployment.
 Usage:
-    python test_public_url.py                    # local default (http://localhost:8000)
+    python test_public_url.py                    # default: https://eep.<OMNI_DOMAIN>
     python test_public_url.py https://my-api.com  # custom URL
     OMNI_URL=https://my-api.com python test_public_url.py
 """
@@ -14,10 +14,14 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+# Default to the Hetzner-deployed EEP subdomain if OMNI_DOMAIN is set
+_DEFAULT_DOMAIN = os.getenv("OMNI_DOMAIN", "")
+_DEFAULT_URL = f"https://eep.{_DEFAULT_DOMAIN}" if _DEFAULT_DOMAIN else "http://localhost:8000"
+
 URL = (
     sys.argv[1]
     if len(sys.argv) > 1
-    else os.getenv("OMNI_URL", "http://localhost:8000")
+    else os.getenv("OMNI_URL", _DEFAULT_URL)
 ).rstrip("/")
 
 
@@ -49,7 +53,7 @@ def _get(path: str, **kwargs):
 
 
 def test_health(max_attempts: int = 8) -> bool:
-    """Poll /health with exponential backoff (Render free-tier cold-start)."""
+    """Poll /health with exponential backoff (handles cold-start / spin-up)."""
     print(f"\n-> GET {URL}/health")
     for attempt in range(1, max_attempts + 1):
         try:
@@ -93,15 +97,15 @@ def test_diagnose(wav_path: str) -> bool:
     except requests.exceptions.SSLError as e:
         print(f"  SSL Error: {e}")
         print(
-            "  Hint: This can happen on Render free tier when the service is still "
-            "waking up or the container crashed on startup. Check Render dashboard logs."
+            "  Hint: This can happen when the service is still "
+            "waking up or the container crashed on startup. Check server logs."
         )
         return False
     except requests.exceptions.ConnectionError as e:
         print(f"  Connection Error: {e}")
         return False
     except requests.exceptions.Timeout:
-        print("  Timeout — Render free tier has a ~30-60s cold-start limit.")
+        print("  Timeout — service may still be spinning up.")
         return False
     except Exception as e:
         print(f"  Unexpected error: {type(e).__name__}: {e}")
@@ -132,6 +136,30 @@ def warm_all():
             print(f"  (ignore) {e}")
 
 
+def test_grafana(grafana_url: str) -> bool:
+    """Quick Grafana health probe (production observability check)."""
+    print(f"\n-> GET {grafana_url}/api/health")
+    try:
+        r = requests.get(f"{grafana_url}/api/health", timeout=15)
+        print(f"  Status: {r.status_code}  Body: {r.text[:200]}")
+        return r.status_code == 200
+    except Exception as e:
+        print(f"  Error: {type(e).__name__}: {e}")
+        return False
+
+
+def test_prometheus(prom_url: str) -> bool:
+    """Quick Prometheus health probe (requires basic auth in prod)."""
+    print(f"\n-> GET {prom_url}/-/healthy")
+    try:
+        r = requests.get(f"{prom_url}/-/healthy", timeout=15)
+        print(f"  Status: {r.status_code}")
+        return r.status_code in (200, 401)  # 401 = auth wall is up
+    except Exception as e:
+        print(f"  Error: {type(e).__name__}: {e}")
+        return False
+
+
 if __name__ == "__main__":
     print(f"Testing Omni-Sense at: {URL}")
 
@@ -144,7 +172,7 @@ if __name__ == "__main__":
 
     ok = test_health()
     if ok:
-        # Give Render a moment to finish spinning up workers after /health succeeds
+        # Give workers a moment to finish initializing after /health succeeds
         time.sleep(2)
 
     ok &= test_diagnose(
@@ -153,6 +181,14 @@ if __name__ == "__main__":
     ok &= test_diagnose(
         "Processed_audio_16k/Branched_Gasket_Leak_BR_GL_0.18_LPS_A1.wav"
     )
+
+    # Optional production-observability probes
+    if "localhost" not in URL:
+        domain = URL.replace("https://eep.", "").replace("http://eep.", "")
+        grafana_url = f"https://grafana.{domain}"
+        prom_url = f"https://prometheus.{domain}"
+        ok &= test_grafana(grafana_url)
+        ok &= test_prometheus(prom_url)
 
     print("\n" + "=" * 50)
     print("PASS" if ok else "FAIL")

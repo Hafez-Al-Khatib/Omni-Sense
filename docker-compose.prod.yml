@@ -1,0 +1,48 @@
+# docker-compose.prod.yml — Production overlay for Hetzner CX22
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# This overlay:
+#   1. Adds Caddy as a TLS-terminating reverse proxy (Let's Encrypt)
+#   2. Removes host-port bindings from internal services (Caddy fronts them)
+#   3. Keeps MQTT 1883/8883 exposed directly for ESP32 / RPi hardware
+
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file: .env.production
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - omni-net
+    depends_on:
+      - eep
+      - grafana
+      - prometheus
+      - mlflow
+
+  # Disable host port bindings — Caddy is the sole entrypoint for HTTP(S)
+  eep:
+    ports: !reset []
+
+  grafana:
+    ports: !reset []
+
+  prometheus:
+    ports: !reset []
+
+  mlflow:
+    ports: !reset []
+
+  # MQTT stays exposed on host ports for hardware integration
+  # (ESP32 / RPi connect directly, not through Caddy)
+
+volumes:
+  caddy_data:
+  caddy_config:

@@ -37,6 +37,8 @@
 
 [2026-05-02 02:35] [claude-opus] Created coordination scaffold. Wrote brief for kimi at `coordination/handoffs/kimi-deployment-brief.md`. Starting 3200 Hz retrain plan in parallel.
 
+[2026-05-02 01:20] [kimi] Starting Task 1–9: Hetzner CX22 deployment + Caddy + DEPLOYMENT.md. Render is documented as secondary path. Will create all deployment artifacts; user provisions Hetzner server and points DNS.
+
 <!-- Append new entries below this line. Format:
 [YYYY-MM-DD HH:MM] [agent] one-line status. Optional second line with link/file path.
 -->
