@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-REPO_URL="${REPO_URL:-https://github.com/hafez/omni-sense.git}"
+REPO_URL="${REPO_URL:-https://github.com/Hafez-Al-Khatib/Omni-Sense.git}"
 OMNI_DOMAIN="${OMNI_DOMAIN:-}"
 GHCR_USER="${GHCR_USER:-}"
 GITHUB_PAT="${GITHUB_PAT:-}"

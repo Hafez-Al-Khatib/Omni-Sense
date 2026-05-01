@@ -20,21 +20,21 @@
 
 services:
   eep:
-    image: ghcr.io/${GHCR_USER}/omni-sense-eep:latest
+    image: ghcr.io/${GHCR_USER:-hafez-al-khatib}/omni-sense-eep:latest
     pull_policy: always
 
   iep2:
-    image: ghcr.io/${GHCR_USER}/omni-sense-iep2:latest
+    image: ghcr.io/${GHCR_USER:-hafez-al-khatib}/omni-sense-iep2:latest
     pull_policy: always
 
   iep3:
-    image: ghcr.io/${GHCR_USER}/omni-sense-iep3:latest
+    image: ghcr.io/${GHCR_USER:-hafez-al-khatib}/omni-sense-iep3:latest
     pull_policy: always
 
   iep4:
-    image: ghcr.io/${GHCR_USER}/omni-sense-iep4:latest
+    image: ghcr.io/${GHCR_USER:-hafez-al-khatib}/omni-sense-iep4:latest
     pull_policy: always
 
   omni-platform:
-    image: ghcr.io/${GHCR_USER}/omni-sense-platform:latest
+    image: ghcr.io/${GHCR_USER:-hafez-al-khatib}/omni-sense-platform:latest
     pull_policy: always

@@ -626,6 +626,30 @@ void setup() {
     while (true) delay(1000);
   }
 
+#if defined(OMNI_PUBLISH_FEATURES) && OMNI_PUBLISH_FEATURES
+  // Allocate the 5-second rolling buffer in PSRAM (ESP32-S3) when
+  // available; fall back to internal SRAM otherwise (works at 32 KB
+  // but uses ~10 % of the chip's RAM).
+  #ifdef BOARD_HAS_PSRAM
+    _featBuf = (int16_t*)ps_malloc(FEAT_WINDOW_SAMPLES * sizeof(int16_t));
+  #endif
+  if (!_featBuf) {
+    _featBuf = (int16_t*)malloc(FEAT_WINDOW_SAMPLES * sizeof(int16_t));
+  }
+  if (!_featBuf) {
+    Serial.println("[FEAT] FATAL: could not allocate 32 KB rolling buffer — "
+                   "falling back to raw-PCM publish for this boot");
+  } else {
+    omni::init(SAMPLE_RATE);
+    bool ok = omni::inference_begin();
+    Serial.printf("[FEAT] on-device features: ENABLED (sr=%d, window=%ds)\n",
+                  SAMPLE_RATE, FEAT_WINDOW_S);
+    Serial.printf("[OOD] %s — %s\n",
+                  ok ? "tflite-micro initialised" : "model unavailable",
+                  omni::inference_status());
+  }
+#endif
+
   Serial.println("[SETUP] complete — entering capture loop");
 }
 
@@ -654,7 +678,15 @@ void loop() {
                   _frameCount, rms_g, VAD_THRESHOLD_G);
     _dropCount++;
   } else {
+#if defined(OMNI_PUBLISH_FEATURES) && OMNI_PUBLISH_FEATURES
+    if (_featBuf) {
+      publish_features(rms_g, snr_db);
+    } else {
+      publish_acoustic(rms_g, snr_db);   // PSRAM-alloc fallback
+    }
+#else
     publish_acoustic(rms_g, snr_db);
+#endif
   }
 
   if (_frameCount % TELEMETRY_PERIOD == 0) {
