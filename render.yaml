@@ -23,6 +23,12 @@ services:
         value: https://omni-sense-iep4.onrender.com
       - key: OMNI_REDIS_URL
         value: ""
+      - key: OMNI_IEP2_TIMEOUT
+        value: "60"
+      - key: OMNI_IEP3_TIMEOUT
+        value: "60"
+      - key: OMNI_IEP4_TIMEOUT
+        value: "60"
     plan: free
 
   - type: web
