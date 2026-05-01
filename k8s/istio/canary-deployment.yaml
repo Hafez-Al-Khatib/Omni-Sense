@@ -1,0 +1,80 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Istio Canary Deployment — Model Version Routing
+# Pattern: Uber Michelangelo — shadow mode mandatory for 75%+ of critical models
+#          Google Vertex AI — traffic-splitting with immutable artifact digests
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: eep-canary
+  namespace: omni-sense
+spec:
+  hosts:
+  - eep.omni-sense.svc.cluster.local
+  http:
+  - match:
+    - headers:
+        x-canary:
+          exact: "true"
+    route:
+    - destination:
+        host: eep.omni-sense.svc.cluster.local
+        subset: canary
+      weight: 100
+  - route:
+    - destination:
+        host: eep.omni-sense.svc.cluster.local
+        subset: stable
+      weight: 95
+    - destination:
+        host: eep.omni-sense.svc.cluster.local
+        subset: canary
+      weight: 5
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: eep-subsets
+  namespace: omni-sense
+spec:
+  host: eep.omni-sense.svc.cluster.local
+  trafficPolicy:
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        http1MaxPendingRequests: 50
+        maxRequestsPerConnection: 10
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+  subsets:
+  - name: stable
+    labels:
+      version: stable
+  - name: canary
+    labels:
+      version: canary
+---
+# Shadow deployment for IEP2 — mirror traffic without affecting responses
+# Used to validate new OOD model versions against real traffic
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: iep2-shadow
+  namespace: omni-sense
+spec:
+  hosts:
+  - iep2.omni-sense.svc.cluster.local
+  http:
+  - route:
+    - destination:
+        host: iep2.omni-sense.svc.cluster.local
+        subset: stable
+    mirror:
+      host: iep2.omni-sense.svc.cluster.local
+      subset: shadow
+    mirrorPercentage:
+      value: 10.0

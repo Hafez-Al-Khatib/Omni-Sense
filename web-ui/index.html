@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Omni-Sense — Acoustic Diagnostics</title>
     <meta name="description" content="Cloud-native acoustic diagnostic platform for urban infrastructure leak detection.">
+    <meta name="theme-color" content="#0a0e17">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -12,13 +13,16 @@
 </head>
 <body>
     <div class="app">
+        <!-- Toast Container -->
+        <div class="toast-container" id="toastContainer"></div>
+
         <!-- Header -->
         <header class="header">
             <div class="header-brand">
                 <div class="logo">
                     <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <circle cx="16" cy="16" r="15" stroke="currentColor" stroke-width="1.5"/>
-                        <path d="M8 16 Q12 8, 16 16 Q20 24, 24 16" stroke="currentColor" stroke-width="2" fill="none"/>
+                        <path d="M8 16 Q12 8, 16 16 Q20 24, 24 16" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/>
                         <circle cx="16" cy="16" r="3" fill="currentColor"/>
                     </svg>
                 </div>
@@ -27,18 +31,36 @@
                     <p class="subtitle">Acoustic Diagnostics</p>
                 </div>
             </div>
-            <div class="status-indicator" id="connectionStatus">
+            <div class="status-indicator checking" id="connectionStatus">
                 <span class="dot"></span>
-                <span>Online</span>
+                <span id="connectionText">Checking…</span>
             </div>
         </header>
 
         <!-- Main Content -->
         <main class="main">
+            <!-- Step Indicator -->
+            <div class="steps" id="steps">
+                <div class="step active" data-step="1">
+                    <span class="step-num">1</span>
+                    <span class="step-label">Capture</span>
+                </div>
+                <div class="step-line" id="line1"></div>
+                <div class="step" data-step="2">
+                    <span class="step-num">2</span>
+                    <span class="step-label">Context</span>
+                </div>
+                <div class="step-line" id="line2"></div>
+                <div class="step" data-step="3">
+                    <span class="step-num">3</span>
+                    <span class="step-label">Analyze</span>
+                </div>
+            </div>
+
             <!-- Recording Section -->
             <section class="card recording-card" id="recordingSection">
                 <h2>Record Audio Sample</h2>
-                <p class="card-desc">Capture a 5-second acoustic sample from the infrastructure point.</p>
+                <p class="card-desc">Capture a 5-second acoustic sample from the infrastructure point, or upload an existing recording.</p>
 
                 <div class="recorder">
                     <button class="record-btn" id="recordBtn" aria-label="Record audio">
@@ -56,12 +78,12 @@
 
                 <!-- Or Upload -->
                 <div class="upload-section">
-                    <span class="divider-text">or upload a file</span>
-                    <label class="upload-btn" for="fileInput">
+                    <span class="divider-text">or drop a file here</span>
+                    <label class="upload-zone" id="uploadZone" for="fileInput">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
                         </svg>
-                        Choose File
+                        <span>Tap to choose WAV, OGG, or FLAC</span>
                     </label>
                     <input type="file" id="fileInput" accept=".wav,.ogg,.flac" hidden>
                     <span class="file-name" id="fileName"></span>
@@ -69,9 +91,9 @@
             </section>
 
             <!-- Metadata Section -->
-            <section class="card metadata-card">
+            <section class="card metadata-card" id="metadataSection">
                 <h2>Environment Metadata</h2>
-                <p class="card-desc">Provide context about the recording environment.</p>
+                <p class="card-desc">Provide context about the recording environment for more accurate diagnosis.</p>
 
                 <div class="form-group">
                     <label for="pipeMaterial">Pipe Material</label>
@@ -153,7 +175,7 @@
             <section class="card ood-card" id="oodSection" style="display:none">
                 <div class="ood-icon">⚠️</div>
                 <h2>Out-of-Distribution Detected</h2>
-                <p id="oodDetail"></p>
+                <p id="oodDetail">The acoustic signature does not match any known environment.</p>
                 <div class="result-row">
                     <span class="result-key">Anomaly Score</span>
                     <span class="result-value" id="oodScore">—</span>
@@ -166,7 +188,8 @@
             <!-- Loading Overlay -->
             <div class="loading-overlay" id="loadingOverlay" style="display:none">
                 <div class="spinner"></div>
-                <p>Analyzing acoustic signature...</p>
+                <p>Analyzing acoustic signature…</p>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: 4px;" id="loadingDetail">This may take a few seconds</p>
             </div>
         </main>
 

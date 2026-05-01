@@ -1,0 +1,91 @@
+groups:
+  - name: omni-sense
+    interval: 15s
+    rules:
+      # ── EEP p95 latency ─────────────────────────────────────────────────────
+      - alert: EEPHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket{job=~"eep"}[5m])) by (le)
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: eep
+        annotations:
+          summary: "EEP p95 latency > 800ms"
+          description: "EEP 95th percentile latency is {{ $value }}s for more than 5 minutes."
+
+      # ── OOD rejection rate ──────────────────────────────────────────────────
+      - alert: OODRejectionRateHigh
+        expr: |
+          sum(rate(iep2_ood_rejected_total[2m])) > 0.333
+        for: 2m
+        labels:
+          severity: critical
+          service: iep2
+        annotations:
+          summary: "OOD rejection rate > 20/min"
+          description: "IEP2 is rejecting {{ $value }} OOD requests per second."
+
+      # ── IEP2 service down ───────────────────────────────────────────────────
+      - alert: IEP2ServiceDown
+        expr: |
+          up{job="iep2"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: iep2
+        annotations:
+          summary: "IEP2 service is down"
+          description: "IEP2 has been unreachable for more than 2 minutes."
+
+      # ── IEP4 service down ───────────────────────────────────────────────────
+      - alert: IEP4ServiceDown
+        expr: |
+          up{job="iep4"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: iep4
+        annotations:
+          summary: "IEP4 service is down"
+          description: "IEP4 has been unreachable for more than 2 minutes."
+
+      # ── Error rate > 5% ─────────────────────────────────────────────────────
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[2m]))
+          /
+          sum(rate(http_requests_total[2m])) > 0.05
+        for: 2m
+        labels:
+          severity: critical
+          service: eep
+        annotations:
+          summary: "HTTP error rate > 5%"
+          description: "Error rate is {{ $value | humanizePercentage }} across all services."
+
+      # ── Drift detected ──────────────────────────────────────────────────────
+      - alert: ModelDriftDetected
+        expr: |
+          omni_drift_detected == 1
+        for: 1m
+        labels:
+          severity: warning
+          service: omni-platform
+        annotations:
+          summary: "Model drift detected"
+          description: "The drift-monitoring subsystem has flagged a distribution shift."
+
+      # ── IEP3 dispatch backlog ───────────────────────────────────────────────
+      - alert: IEP3TicketBacklog
+        expr: |
+          iep3_open_tickets > 50
+        for: 5m
+        labels:
+          severity: warning
+          service: iep3
+        annotations:
+          summary: "IEP3 ticket backlog > 50"
+          description: "There are {{ $value }} unresolved maintenance tickets."

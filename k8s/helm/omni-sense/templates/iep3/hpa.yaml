@@ -1,0 +1,36 @@
+{{- if .Values.iep3.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Values.iep3.name }}
+  namespace: {{ include "omni-sense.namespace" . }}
+  labels:
+    {{- include "omni-sense.componentLabels" (dict "component" .Values.iep3.name "context" .) | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Values.iep3.name }}
+  minReplicas: {{ .Values.iep3.hpa.minReplicas }}
+  maxReplicas: {{ .Values.iep3.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.iep3.hpa.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 60
+{{- end }}

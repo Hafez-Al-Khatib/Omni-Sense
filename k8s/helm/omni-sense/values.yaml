@@ -122,6 +122,11 @@ iep3:
     limits:
       cpu: 500m
       memory: 512Mi
+  hpa:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 3
+    targetCPUUtilizationPercentage: 70
   readinessProbe:
     path: /health
     port: 8003

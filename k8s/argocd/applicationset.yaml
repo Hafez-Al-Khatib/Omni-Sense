@@ -1,0 +1,52 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# ArgoCD ApplicationSet — GitOps for Multi-Environment Deployment
+# Pattern: Google Cloud Build + GitOps — Git as single source of truth
+#          Netflix — immutable promotions via GitOps controller
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: omni-sense
+  namespace: argocd
+spec:
+  generators:
+  - list:
+      elements:
+      - cluster: staging
+        branch: staging
+        autoSync: "true"
+        environment: staging
+      - cluster: production
+        branch: main
+        autoSync: "false"
+        environment: production
+  template:
+    metadata:
+      name: 'omni-sense-{{environment}}'
+    spec:
+      project: default
+      source:
+        repoURL: https://github.com/YOUR_USER/omni-sense.git
+        targetRevision: '{{branch}}'
+        path: k8s/helm/omni-sense
+        helm:
+          valueFiles:
+          - values-{{environment}}.yaml
+      destination:
+        server: 'https://kubernetes.default.svc'
+        namespace: omni-sense
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+          allowEmpty: false
+        syncOptions:
+        - CreateNamespace=true
+      # Production requires manual sync + approval gate
+      {{- if eq .environment "production" }}
+      ignoreDifferences:
+      - group: apps
+        kind: Deployment
+        jsonPointers:
+        - /spec/replicas
+      {{- end }}

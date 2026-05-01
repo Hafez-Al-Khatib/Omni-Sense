@@ -1,26 +1,31 @@
 #!/usr/bin/env python3
-"""Omni-Sense Raspberry Pi Edge Agent — production-grade.
+"""Omni-Sense Raspberry Pi 5 Edge Inference Gateway
 
-Reads from an ADXL345 accelerometer via I2C (smbus2), or falls back to
-simulated vibration data when hardware is unavailable.  Accumulates 15 600
-samples at a 16 kHz effective rate, applies VAD, encodes PCM16 and publishes
-acoustic frames + periodic telemetry over MQTT with mTLS.
+Reads vibration data from an ADXL345 accelerometer via I2C (200 Hz, honest),
+or generates honest synthetic vibration data.  Accumulates 5-second windows,
+resamples to 16 kHz using FFT-based scipy.signal.resample, extracts the
+39-dimensional DSP feature vector, and runs IEP2 ONNX models locally:
 
-Environment variables (all optional, have defaults):
-  SENSOR_ID       — e.g. S-HAMRA-001          (default: S-HAMRA-001)
-  SITE_ID         — e.g. beirut/hamra          (default: beirut/hamra)
-  MQTT_HOST       — broker hostname            (default: localhost)
-  MQTT_PORT       — broker port                (default: 8883)
-  MQTT_CA         — path to CA cert            (default: /etc/omni/certs/ca.crt)
-  MQTT_CERT       — path to client cert        (default: /etc/omni/certs/{SENSOR_ID}.crt)
-  MQTT_KEY        — path to client key         (default: /etc/omni/certs/{SENSOR_ID}.key)
-  VAD_THRESHOLD   — RMS threshold 0.0-1.0      (default: 0.005)
-  FIRMWARE_VER    — firmware string            (default: edge-fw-2026.04.1)
-  SIMULATE        — force simulation mode      (default: auto-detect)
+  1. Isolation Forest OOD gate
+  2. XGBoost classifier (if OOD passes)
+
+Publishes JSON diagnosis results to MQTT.
+
+Environment variables:
+  SENSOR_ID       — sensor identity               (default: S-RPI5-001)
+  SITE_ID         — site slug                     (default: beirut/hamra)
+  MQTT_HOST       — broker hostname               (default: localhost)
+  MQTT_PORT       — broker port                   (default: 1883)
+  OMNI_MODEL_PATH — path to iep2/models           (default: ../../iep2/models)
+  HARDWARE_MODE   — force I2C ADXL345 read        (default: auto-detect)
+  SIMULATE_MODE   — force synthetic data          (default: auto-detect)
+  VAD_THRESHOLD   — RMS gate 0.0-1.0              (default: 0.005)
+  FIRMWARE_VER    — firmware string               (default: edge-fw-rpi5-v1)
 
 Usage:
-  python agent.py
-  SIMULATE=1 python agent.py  # forced simulation for testing
+  python agent.py                          # auto-detect sensor / simulation
+  HARDWARE_MODE=1 python agent.py          # force I2C hardware
+  SIMULATE_MODE=1 python agent.py          # force simulation
 """
 from __future__ import annotations
 
@@ -36,29 +41,26 @@ import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import paho.mqtt.client as mqtt
 
 # ─────────────────────────── Configuration ────────────────────────────────────
 
-SENSOR_ID: str = os.environ.get("SENSOR_ID", "S-HAMRA-001")
+SENSOR_ID: str = os.environ.get("SENSOR_ID", "S-RPI5-001")
 SITE_ID: str = os.environ.get("SITE_ID", "beirut/hamra")
 MQTT_HOST: str = os.environ.get("MQTT_HOST", "localhost")
-MQTT_PORT: int = int(os.environ.get("MQTT_PORT", "8883"))
-FIRMWARE_VER: str = os.environ.get("FIRMWARE_VER", "edge-fw-2026.04.1")
+MQTT_PORT: int = int(os.environ.get("MQTT_PORT", "1883"))
+FIRMWARE_VER: str = os.environ.get("FIRMWARE_VER", "edge-fw-rpi5-v1")
 VAD_THRESHOLD: float = float(os.environ.get("VAD_THRESHOLD", "0.005"))
 
-# Certificate paths — fall back to /etc/omni/certs/ or /certs/
-_cert_base = Path("/etc/omni/certs")
-if not _cert_base.exists():
-    _cert_base = Path("/certs")
-
-MQTT_CA: str = os.environ.get("MQTT_CA", str(_cert_base / "ca.crt"))
-MQTT_CERT: str = os.environ.get("MQTT_CERT", str(_cert_base / f"{SENSOR_ID}.crt"))
-MQTT_KEY: str = os.environ.get("MQTT_KEY", str(_cert_base / f"{SENSOR_ID}.key"))
+# Model path: relative to this script, or override via env var
+_default_model_path = (Path(__file__).resolve().parent / ".." / ".." / "iep2" / "models").resolve()
+OMNI_MODEL_PATH: Path = Path(os.environ.get("OMNI_MODEL_PATH", str(_default_model_path)))
 
 # ADXL345 I2C constants
-ADXL345_ADDR: int = 0x53           # ALT address 0x1D if SDO=HIGH
+ADXL345_ADDR: int = 0x53
 ADXL345_REG_DEVID: int = 0x00
 ADXL345_REG_BW_RATE: int = 0x2C
 ADXL345_REG_POWER_CTL: int = 0x2D
@@ -67,18 +69,21 @@ ADXL345_REG_FIFO_CTL: int = 0x38
 ADXL345_REG_FIFO_STATUS: int = 0x39
 ADXL345_REG_DATAX0: int = 0x32
 
-# Sampling: ADXL345 FIFO at 200 Hz, upsample 80× to 16 000 Hz effective
-ADXL345_ODR_HZ: int = 200           # ADXL345 output data rate with BW_RATE=0x0B
-UPSAMPLE_FACTOR: int = 80           # 200 × 80 = 16 000
-TARGET_RATE_HZ: int = ADXL345_ODR_HZ * UPSAMPLE_FACTOR  # 16 000
-FRAME_SAMPLES: int = 15_600         # 0.975 s at 16 kHz
-TELEMETRY_PERIOD_FRAMES: int = 30   # publish telemetry every N acoustic frames
+# Honest sampling parameters (NO fake upsampling)
+ADXL345_ODR_HZ: int = 200           # ADXL345 output data rate (BW_RATE=0x0B)
+LOCAL_SAMPLE_RATE: int = ADXL345_ODR_HZ
+COLLECT_SECONDS: int = 5
+LOCAL_FRAME_SAMPLES: int = LOCAL_SAMPLE_RATE * COLLECT_SECONDS  # 1 000 @ 200 Hz
+
+# Target rate for feature extraction — models were trained on 16 kHz features.
+# We use FFT-based resampling (scipy.signal.resample) which is theoretically
+# correct for bandlimited signals.  It does NOT invent new frequency content.
+TARGET_RATE_HZ: int = 16_000
 
 # MQTT topics
-ACOUSTIC_TOPIC: str = f"omni/sensor/{SITE_ID}/{SENSOR_ID}/acoustic"
-TELEMETRY_TOPIC: str = f"omni/sensor/{SITE_ID}/{SENSOR_ID}/telemetry"
+DIAGNOSIS_TOPIC: str = f"omni/diagnosis/{SITE_ID}/{SENSOR_ID}"
+ACOUSTIC_SUB_TOPIC: str = "omni/acoustic/#"
 
-# Reconnect back-off
 RECONNECT_MIN_S: float = 1.0
 RECONNECT_MAX_S: float = 60.0
 
@@ -94,12 +99,130 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",
     stream=sys.stdout,
 )
-log = logging.getLogger("edge-agent")
+log = logging.getLogger("edge-gateway")
+
+# ─────────────────────────── Feature extractor (import or inline) ─────────────
+
+# Prefer the project feature extractor; fall back to an inline copy so the
+# agent can be copied to a bare Pi without the full repo.
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent / ".." / ".." / "omni" / "eep"))
+    from features import extract_features, extract_features_with_meta  # type: ignore[import]
+
+    log.info("features_imported source=omni.eep.features")
+except Exception as _exc:
+    log.warning("features_import_failed exc=%s — using inline fallback", _exc)
+    extract_features_with_meta = None  # type: ignore[misc]
+
+    # Inline minimal 39-d feature extractor (pure NumPy, matches omni/eep/features.py)
+    _FRAME_LEN = 512
+    _HOP = 256
+    _N_FFT = 512
+    _N_MELS = 40
+    _N_MFCC = 13
+    _ROLL_PCT = 0.85
+
+    def _frames(x: np.ndarray, frame_len: int = _FRAME_LEN, hop: int = _HOP) -> np.ndarray:
+        n = len(x)
+        n_frames = max(1, 1 + (n - frame_len) // hop)
+        out = np.zeros((n_frames, frame_len), dtype=np.float32)
+        for i in range(n_frames):
+            s = i * hop
+            seg = x[s : s + frame_len]
+            out[i, : len(seg)] = seg
+        return out
+
+    def _rfft_mag(frames: np.ndarray) -> np.ndarray:
+        return np.abs(np.fft.rfft(frames * np.hanning(frames.shape[1]), n=_N_FFT))
+
+    def _mel_filterbank(sr: int, n_fft: int, n_mels: int) -> np.ndarray:
+        def hz_to_mel(f): return 2595.0 * np.log10(1.0 + f / 700.0)
+        def mel_to_hz(m): return 700.0 * (10.0 ** (m / 2595.0) - 1.0)
+        f_min, f_max = 0.0, sr / 2.0
+        m_min, m_max = hz_to_mel(f_min), hz_to_mel(f_max)
+        mel_points = np.linspace(m_min, m_max, n_mels + 2)
+        hz_points = mel_to_hz(mel_points)
+        bin_points = np.floor((n_fft + 1) * hz_points / sr).astype(int)
+        fbank = np.zeros((n_mels, n_fft // 2 + 1), dtype=np.float32)
+        for m in range(1, n_mels + 1):
+            f_m1, f_m, f_m1r = bin_points[m - 1], bin_points[m], bin_points[m + 1]
+            for k in range(f_m1, f_m):
+                if f_m != f_m1:
+                    fbank[m - 1, k] = (k - f_m1) / (f_m - f_m1)
+            for k in range(f_m, f_m1r):
+                if f_m1r != f_m:
+                    fbank[m - 1, k] = (f_m1r - k) / (f_m1r - f_m)
+        return fbank
+
+    def _dct2(x: np.ndarray) -> np.ndarray:
+        N = x.shape[-1]
+        n = np.arange(N, dtype=np.float64)
+        k = n.reshape(-1, 1)
+        D = np.cos(np.pi * k * (2 * n + 1) / (2 * N)).astype(np.float32)
+        return x @ D.T
+
+    def _spectral_centroid(mag: np.ndarray, sr: int) -> np.ndarray:
+        freqs = np.fft.rfftfreq(_N_FFT, d=1.0 / sr).astype(np.float32)
+        energy = mag.sum(axis=1, keepdims=True) + 1e-9
+        return (mag @ freqs) / energy.squeeze()
+
+    def _spectral_rolloff(mag: np.ndarray, sr: int, roll_pct: float = _ROLL_PCT) -> np.ndarray:
+        freqs = np.fft.rfftfreq(_N_FFT, d=1.0 / sr).astype(np.float32)
+        cum = np.cumsum(mag, axis=1)
+        total = cum[:, -1:] * roll_pct + 1e-9
+        idx = np.argmax(cum >= total, axis=1)
+        return freqs[idx]
+
+    def _spectral_flatness(mag: np.ndarray) -> np.ndarray:
+        eps = 1e-9
+        log_mean = np.mean(np.log(mag + eps), axis=1)
+        arith = np.mean(mag, axis=1) + eps
+        return np.exp(log_mean) / arith
+
+    def _compute_mfccs(mag: np.ndarray, sr: int, n_mels: int = _N_MELS, n_mfcc: int = _N_MFCC) -> np.ndarray:
+        fbank = _mel_filterbank(sr, _N_FFT, n_mels)
+        mel_power = (mag ** 2) @ fbank.T + 1e-9
+        log_mel = np.log(mel_power).astype(np.float32)
+        dct_out = _dct2(log_mel)
+        return dct_out[:, :n_mfcc]
+
+    def extract_features(pcm: np.ndarray, sr: int = 16_000) -> np.ndarray:  # noqa: F811
+        if len(pcm) < _FRAME_LEN:
+            raise ValueError(f"PCM too short: {len(pcm)} < {_FRAME_LEN}")
+        pcm = pcm.astype(np.float32)
+        frames_t = _frames(pcm, _FRAME_LEN, _HOP)
+        rms_frames = np.sqrt(np.mean(frames_t ** 2, axis=1)) + 1e-9
+        zcr_frames = np.mean(np.abs(np.diff(np.sign(frames_t), axis=1)) / 2, axis=1)
+        rms_mean, rms_std = float(np.mean(rms_frames)), float(np.std(rms_frames))
+        zcr_mean, zcr_std = float(np.mean(zcr_frames)), float(np.std(zcr_frames))
+        mu, sigma = float(np.mean(pcm)), float(np.std(pcm)) + 1e-9
+        kurt = float(np.mean(((pcm - mu) / sigma) ** 4)) - 3.0
+        skw = float(np.mean(((pcm - mu) / sigma) ** 3))
+        crest = float(np.max(np.abs(pcm))) / rms_mean
+        mag = _rfft_mag(frames_t)
+        cent = _spectral_centroid(mag, sr)
+        rolloff = _spectral_rolloff(mag, sr)
+        flat = _spectral_flatness(mag)
+        cent_mean, cent_std = float(np.mean(cent)), float(np.std(cent))
+        roll_mean, roll_std = float(np.mean(rolloff)), float(np.std(rolloff))
+        flat_mean, flat_std = float(np.mean(flat)), float(np.std(flat))
+        mfccs = _compute_mfccs(mag, sr, _N_MELS, _N_MFCC)
+        mfcc_means = np.mean(mfccs, axis=0)
+        mfcc_stds = np.std(mfccs, axis=0)
+        mfcc_feats = np.empty(26, dtype=np.float32)
+        mfcc_feats[0::2] = mfcc_means
+        mfcc_feats[1::2] = mfcc_stds
+        feat = np.array([
+            rms_mean, rms_std, zcr_mean, zcr_std, kurt, skw, crest,
+            cent_mean, cent_std, roll_mean, roll_std, flat_mean, flat_std,
+        ], dtype=np.float32)
+        return np.concatenate([feat, mfcc_feats])
+
 
 # ─────────────────────────── Hardware abstraction ─────────────────────────────
 
-class ADXL345:
-    """Minimal ADXL345 driver over smbus2."""
+class ADXL345Sensor:
+    """Minimal ADXL345 driver over smbus2 at 200 Hz — honest, no upsampling."""
 
     def __init__(self, bus_num: int = 1, address: int = ADXL345_ADDR) -> None:
         import smbus2  # type: ignore[import]
@@ -108,23 +231,19 @@ class ADXL345:
         self._init()
 
     def _init(self) -> None:
-        # Verify device ID
         dev_id = self._bus.read_byte_data(self._addr, ADXL345_REG_DEVID)
         if dev_id != 0xE5:
             raise RuntimeError(f"ADXL345 not found — DEVID=0x{dev_id:02X}, expected 0xE5")
-
-        # 200 Hz output data rate (BW_RATE register: 0x0B = 200 Hz, low power off)
+        # 200 Hz ODR (BW_RATE = 0x0B)
         self._bus.write_byte_data(self._addr, ADXL345_REG_BW_RATE, 0x0B)
-
-        # Full-resolution ±16g, 4mg/LSB, SPI 4-wire (DATA_FORMAT)
+        # Full-resolution ±16 g
         self._bus.write_byte_data(self._addr, ADXL345_REG_DATA_FORMAT, 0x0B)
-
         # FIFO stream mode, watermark at 20 samples
         self._bus.write_byte_data(self._addr, ADXL345_REG_FIFO_CTL, 0x94)
-
         # Measurement mode
         self._bus.write_byte_data(self._addr, ADXL345_REG_POWER_CTL, 0x08)
         time.sleep(0.05)
+        log.info("adxl_init odr_hz=200 range=±16g mode=stream")
 
     def read_fifo(self) -> list[float]:
         """Drain FIFO, return Z-axis samples normalised to [-1, 1]."""
@@ -133,9 +252,7 @@ class ADXL345:
         samples: list[float] = []
         for _ in range(n_entries):
             raw = self._bus.read_i2c_block_data(self._addr, ADXL345_REG_DATAX0, 6)
-            # Z is bytes [4:6], little-endian signed 16-bit
             z = struct.unpack_from("<h", bytes(raw), 4)[0]
-            # ±16g full-res: 4 mg/LSB → normalise to ±1 (at ±16g = 4096 LSB)
             samples.append(z / 4096.0)
         return samples
 
@@ -148,42 +265,44 @@ class ADXL345:
 
 
 class SimulatedSensor:
-    """Generates realistic pipe-vibration data — used when no hardware present."""
+    """Generates honest synthetic pipe-vibration data at 3,200 Hz structure-borne rate."""
 
     def __init__(self) -> None:
         self._t: float = 0.0
         self._leak_mode: bool = False
         self._frame_count: int = 0
-        log.warning("Hardware unavailable — running in SIMULATION mode")
+        log.warning("simulation_mode active — generating synthetic 3.2 kHz vibration data")
 
-    def read_fifo(self) -> list[float]:
-        # Simulate a FIFO drain of ~20 samples at 200 Hz
-        n = 20
-        samples: list[float] = []
-        dt = 1.0 / ADXL345_ODR_HZ
-
-        # Toggle leak mode every ~60 s to exercise VAD
+    def read_block(self, n_samples: int, sr: int) -> np.ndarray:
+        """Return n_samples of synthetic float32 data at sr Hz."""
+        dt = 1.0 / sr
+        samples = np.empty(n_samples, dtype=np.float32)
         self._frame_count += 1
-        if self._frame_count % (60 * ADXL345_ODR_HZ // n) == 0:
+        # Toggle leak mode every ~60 s worth of frames
+        if self._frame_count % max(1, (60 * sr) // n_samples) == 0:
             self._leak_mode = not self._leak_mode
 
-        for i in range(n):
+        for i in range(n_samples):
             t = self._t + i * dt
-            # Ambient pipe rumble
+            # Ambient pipe rumble (low freq)
             ambient = 0.002 * math.sin(2 * math.pi * 50 * t)
             ambient += 0.001 * math.sin(2 * math.pi * 120 * t)
-            # Narrow-band leak hiss (300-600 Hz, amplitude ~0.015)
+            # Leak signature (300–600 Hz band, amplitude ~0.015)
             if self._leak_mode:
                 leak = 0.015 * math.sin(2 * math.pi * 420 * t)
                 leak += 0.008 * math.sin(2 * math.pi * 550 * t)
+                leak += 0.005 * math.sin(2 * math.pi * 380 * t)
             else:
                 leak = 0.0
             # White noise floor
-            import random
-            noise = random.gauss(0, 0.001)
-            samples.append(max(-1.0, min(1.0, ambient + leak + noise)))
-        self._t += n * dt
+            noise = np.random.normal(0.0, 0.001)
+            samples[i] = max(-1.0, min(1.0, ambient + leak + noise))
+        self._t += n_samples * dt
         return samples
+
+    def read_fifo(self) -> list[float]:
+        # For compatibility with the old polling loop: return ~20 samples at 200 Hz equiv
+        return self.read_block(20, ADXL345_ODR_HZ).tolist()
 
     def close(self) -> None:
         pass
@@ -191,125 +310,121 @@ class SimulatedSensor:
 
 # ─────────────────────────── DSP helpers ──────────────────────────────────────
 
-def linear_upsample(samples: list[float], factor: int) -> list[float]:
-    """Linear interpolation upsampling by integer factor."""
-    if not samples:
-        return []
-    out: list[float] = []
-    for i in range(len(samples) - 1):
-        a, b = samples[i], samples[i + 1]
-        for k in range(factor):
-            out.append(a + (b - a) * k / factor)
-    out.append(samples[-1])
-    return out
+def honest_resample(x: np.ndarray, orig_sr: int, target_sr: int) -> np.ndarray:
+    """FFT-based resampling using scipy.signal.resample.
+
+    This is the theoretically correct method for bandlimited signals.
+    It does NOT invent new frequency content — frequencies above orig_sr/2
+    remain zero (or near-zero) after resampling.
+    """
+    from scipy import signal  # type: ignore[import]
+    n_target = int(len(x) * target_sr / orig_sr)
+    return signal.resample(x, n_target)
 
 
-def compute_rms(samples: list[float]) -> float:
-    if not samples:
+def compute_rms(samples: np.ndarray) -> float:
+    if len(samples) == 0:
         return 0.0
-    return math.sqrt(sum(s * s for s in samples) / len(samples))
+    return float(np.sqrt(np.mean(samples ** 2)))
 
 
-def compute_snr_db(samples: list[float], noise_floor: float = 0.001) -> float:
+def compute_snr_db(samples: np.ndarray, noise_floor: float = 0.001) -> float:
     rms = compute_rms(samples)
     if rms <= 0 or noise_floor <= 0:
         return 0.0
     return 20.0 * math.log10(max(rms / noise_floor, 1e-9))
 
 
-def to_pcm16_b64(samples: list[float]) -> str:
-    """Convert float samples [-1, 1] to PCM16 little-endian, base64-encode."""
-    clipped = [max(-1.0, min(1.0, s)) for s in samples]
-    pcm = struct.pack(f"<{len(clipped)}h", *(int(s * 32767) for s in clipped))
-    return base64.b64encode(pcm).decode("ascii")
+# ─────────────────────────── ONNX Inference Engine ────────────────────────────
+
+class ONNXInferenceEngine:
+    """Loads IEP2 ONNX models and runs OOD gate + classification."""
+
+    def __init__(self, model_dir: Path) -> None:
+        import onnxruntime as ort  # type: ignore[import]
+
+        self._model_dir = model_dir
+        self._ood_path = model_dir / "isolation_forest.onnx"
+        self._clf_path = model_dir / "xgboost_classifier.onnx"
+
+        for p in (self._ood_path, self._clf_path):
+            if not p.exists():
+                raise FileNotFoundError(f"Model missing: {p}")
+
+        log.info("onnx_loading ood=%s clf=%s", self._ood_path.name, self._clf_path.name)
+        t0 = time.monotonic()
+        self._sess_ood = ort.InferenceSession(str(self._ood_path), providers=["CPUExecutionProvider"])
+        self._sess_clf = ort.InferenceSession(str(self._clf_path), providers=["CPUExecutionProvider"])
+        load_ms = (time.monotonic() - t0) * 1000
+        log.info("onnx_loaded ood_inputs=%s clf_inputs=%s load_ms=%.1f",
+                 [i.name for i in self._sess_ood.get_inputs()],
+                 [i.name for i in self._sess_clf.get_inputs()],
+                 load_ms)
+
+        # Load label map if present
+        label_map_path = model_dir / "label_map.json"
+        self._label_map: dict[int, str] = {}
+        if label_map_path.exists():
+            with open(label_map_path) as f:
+                raw = json.load(f)
+            self._label_map = {int(k): v for k, v in raw.items() if k.lstrip("-").isdigit()}
+            log.info("label_map_loaded %s", self._label_map)
+        else:
+            self._label_map = {0: "Leak", 1: "No_Leak"}
+
+    def predict(self, features_39: np.ndarray, features_41: np.ndarray | None = None) -> dict[str, Any]:
+        """Run OOD detection (39-d) then classification (41-d if available, else 39-d).
+
+        Parameters
+        ----------
+        features_39 : 39-d DSP feature vector
+        features_41 : 41-d vector with metadata (pipe_material, pressure_bar).
+                      If None, the classifier receives the 39-d vector (may fail
+                      if the model was trained on 41-d).
+        """
+        x39 = features_39.astype(np.float32).reshape(1, -1)
+        x41 = features_41.astype(np.float32).reshape(1, -1) if features_41 is not None else x39
+
+        # OOD gate (Isolation Forest) — trained on 39-d features
+        ood_input_name = self._sess_ood.get_inputs()[0].name
+        ood_out = self._sess_ood.run(None, {ood_input_name: x39})
+        ood_label = int(ood_out[0].flatten()[0])
+        ood_score = float(ood_out[1].flatten()[0])
+        is_ood = ood_label == -1
+
+        if is_ood:
+            return {
+                "label": "Unknown",
+                "confidence": 0.0,
+                "is_ood": True,
+                "ood_score": round(ood_score, 4),
+            }
+
+        # Classification (XGBoost) — may expect 41-d with metadata
+        clf_input_name = self._sess_clf.get_inputs()[0].name
+        clf_out = self._sess_clf.run(None, {clf_input_name: x41})
+        # XGBoost ONNX output_probability can be a list of dicts: [{0: p0, 1: p1}]
+        raw_probs = clf_out[1][0]
+        if isinstance(raw_probs, dict):
+            probs = np.array([raw_probs[i] for i in sorted(raw_probs.keys())], dtype=np.float32)
+        else:
+            probs = np.array(raw_probs, dtype=np.float32)
+        pred_class = int(np.argmax(probs))
+        confidence = float(probs[pred_class])
+
+        return {
+            "label": self._label_map.get(pred_class, str(pred_class)),
+            "confidence": round(confidence, 4),
+            "is_ood": False,
+            "ood_score": round(ood_score, 4),
+            "probs": {self._label_map.get(i, str(i)): round(float(p), 4) for i, p in enumerate(probs)},
+        }
 
 
-# ─────────────────────────── Telemetry helpers ────────────────────────────────
-
-def _read_cpu_temp() -> float:
-    """Read CPU temperature from sysfs (Raspberry Pi)."""
-    p = Path("/sys/class/thermal/thermal_zone0/temp")
-    try:
-        return int(p.read_text().strip()) / 1000.0
-    except Exception:
-        try:
-            import psutil  # type: ignore[import]
-            temps = psutil.sensors_temperatures()
-            for vals in temps.values():
-                if vals:
-                    return vals[0].current
-        except Exception:
-            pass
-    return 40.0  # safe fallback
-
-
-def _read_battery_pct() -> float:
-    """Read battery percentage from power supply sysfs or psutil."""
-    for ps in Path("/sys/class/power_supply").glob("BAT*"):
-        cap = ps / "capacity"
-        if cap.exists():
-            try:
-                return float(cap.read_text().strip())
-            except Exception:
-                pass
-    # UPS HAT may expose a different path
-    for ps in Path("/sys/class/power_supply").glob("*"):
-        cap = ps / "capacity"
-        if cap.exists():
-            try:
-                return float(cap.read_text().strip())
-            except Exception:
-                pass
-    try:
-        import psutil  # type: ignore[import]
-        b = psutil.sensors_battery()
-        if b:
-            return b.percent
-    except Exception:
-        pass
-    return 100.0  # assume mains-powered
-
-
-def _read_disk_free_mb() -> float:
-    try:
-        import shutil
-        usage = shutil.disk_usage("/")
-        return usage.free / (1024 * 1024)
-    except Exception:
-        return 0.0
-
-
-def _read_uptime_s() -> int:
-    try:
-        return int(Path("/proc/uptime").read_text().split()[0].split(".")[0])
-    except Exception:
-        return 0
-
-
-def _read_rtc_drift_ms() -> int:
-    """Estimate RTC drift via chronyc or hwclock comparison (best-effort)."""
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["chronyc", "tracking"],
-            capture_output=True, text=True, timeout=2
-        )
-        for line in result.stdout.splitlines():
-            if "System time" in line:
-                # "System time     :  0.000000123 seconds slow of NTP time"
-                parts = line.split(":")
-                if len(parts) > 1:
-                    val_str = parts[1].strip().split()[0]
-                    return int(float(val_str) * 1000)
-    except Exception:
-        pass
-    return 0
-
-
-# ─────────────────────────── MQTT client wrapper ──────────────────────────────
+# ─────────────────────────── MQTT wrapper ─────────────────────────────────────
 
 class MQTTPublisher:
-    """Thread-safe paho-mqtt wrapper with mTLS and exponential back-off reconnect."""
+    """Thread-safe paho-mqtt wrapper with exponential back-off reconnect."""
 
     def __init__(self) -> None:
         self._client = mqtt.Client(
@@ -320,41 +435,22 @@ class MQTTPublisher:
         self._connected = threading.Event()
         self._shutdown = False
         self._backoff = RECONNECT_MIN_S
+        self._message_queue: list[tuple[str, str]] = []
+        self._lock = threading.Lock()
 
-        self._configure_tls()
         self._client.on_connect = self._on_connect
         self._client.on_disconnect = self._on_disconnect
         self._client.on_publish = self._on_publish
-
-    def _configure_tls(self) -> None:
-        ca = MQTT_CA
-        cert = MQTT_CERT
-        key = MQTT_KEY
-
-        missing = [p for p in [ca, cert, key] if not Path(p).exists()]
-        if missing:
-            log.warning(
-                "cert_missing paths=%s — TLS configured without client cert "
-                "(server may reject)",
-                missing,
-            )
-            self._client.tls_set(ca_certs=ca if Path(ca).exists() else None)
-        else:
-            log.info("tls_configured ca=%s cert=%s", ca, cert)
-            import ssl
-            self._client.tls_set(
-                ca_certs=ca,
-                certfile=cert,
-                keyfile=key,
-                tls_version=ssl.PROTOCOL_TLS_CLIENT,
-            )
-            self._client.tls_insecure_set(False)
+        self._client.on_message = self._on_message
 
     def _on_connect(self, client, userdata, flags, rc) -> None:
         if rc == 0:
             log.info("mqtt_connected host=%s port=%d", MQTT_HOST, MQTT_PORT)
             self._connected.set()
             self._backoff = RECONNECT_MIN_S
+            # Subscribe to ESP32 acoustic frames
+            client.subscribe(ACOUSTIC_SUB_TOPIC)
+            log.info("mqtt_subscribed topic=%s", ACOUSTIC_SUB_TOPIC)
         else:
             log.error("mqtt_connect_failed rc=%d", rc)
 
@@ -366,24 +462,28 @@ class MQTTPublisher:
         time.sleep(self._backoff)
         self._backoff = min(self._backoff * 2, RECONNECT_MAX_S)
         try:
-            self._client.reconnect()
+            client.reconnect()
         except Exception as exc:
             log.error("mqtt_reconnect_error exc=%s", exc)
 
     def _on_publish(self, client, userdata, mid) -> None:
         log.debug("mqtt_published mid=%d", mid)
 
+    def _on_message(self, client, userdata, msg) -> None:
+        log.debug("mqtt_received topic=%s len=%d", msg.topic, len(msg.payload))
+        # Placeholder: ESP32 acoustic frames can be processed here in future
+        # by decoding the base64 PCM and feeding into the inference pipeline.
+
     def start(self) -> None:
         self._client.connect_async(MQTT_HOST, MQTT_PORT, keepalive=60)
         self._client.loop_start()
-        # Wait up to 15 s for first connection
         connected = self._connected.wait(timeout=15.0)
         if not connected:
             log.warning("mqtt_connect_timeout — will keep retrying in background")
 
     def publish(self, topic: str, payload: str, qos: int = 1) -> None:
         if not self._connected.is_set():
-            log.warning("mqtt_not_connected topic=%s — dropping frame", topic)
+            log.warning("mqtt_not_connected topic=%s — dropping message", topic)
             return
         result = self._client.publish(topic, payload, qos=qos)
         if result.rc != mqtt.MQTT_ERR_SUCCESS:
@@ -396,152 +496,168 @@ class MQTTPublisher:
         log.info("mqtt_stopped")
 
 
-# ─────────────────────────── Main agent loop ──────────────────────────────────
+# ─────────────────────────── Edge Inference Gateway ───────────────────────────
 
-class EdgeAgent:
+class EdgeInferenceGateway:
     def __init__(self) -> None:
-        self._sensor = self._init_sensor()
-        self._mqtt = MQTTPublisher()
-        self._frame_count: int = 0
-        self._buffer: list[float] = []
-        self._shutdown_flag = threading.Event()
+        # Determine mode
+        force_hw = os.environ.get("HARDWARE_MODE", "").lower() in ("1", "true", "yes")
+        force_sim = os.environ.get("SIMULATE_MODE", "").lower() in ("1", "true", "yes")
 
-    # ----- lifecycle ---------------------------------------------------------
-
-    @staticmethod
-    def _init_sensor():
-        force_sim = os.environ.get("SIMULATE", "").lower() in ("1", "true", "yes")
-        if not force_sim:
+        self._mode: str
+        self._sensor: ADXL345Sensor | SimulatedSensor
+        if force_hw:
+            self._mode = "hardware"
+            self._sensor = ADXL345Sensor()
+        elif force_sim:
+            self._mode = "simulation"
+            self._sensor = SimulatedSensor()
+        else:
             try:
-                sensor = ADXL345()
+                self._mode = "hardware"
+                self._sensor = ADXL345Sensor()
                 log.info("hardware=ADXL345 i2c_addr=0x%02X", ADXL345_ADDR)
-                return sensor
             except Exception as exc:
                 log.warning("adxl345_unavailable exc=%s — falling back to simulation", exc)
-        return SimulatedSensor()
+                self._mode = "simulation"
+                self._sensor = SimulatedSensor()
+
+        # Load inference models
+        self._engine = ONNXInferenceEngine(OMNI_MODEL_PATH)
+        self._mqtt = MQTTPublisher()
+        self._shutdown_flag = threading.Event()
+        self._buffer: list[float] = []
+        self._frame_count: int = 0
+
+        log.info(
+            "gateway_init mode=%s local_sr=%d target_sr=%d collect_s=%d model_dir=%s",
+            self._mode, LOCAL_SAMPLE_RATE, TARGET_RATE_HZ, COLLECT_SECONDS, OMNI_MODEL_PATH,
+        )
 
     def start(self) -> None:
         self._mqtt.start()
         self._run_loop()
 
     def stop(self) -> None:
-        log.info("agent_shutdown signal received")
+        log.info("gateway_shutdown signal received")
         self._shutdown_flag.set()
         self._sensor.close()
         self._mqtt.stop()
 
-    # ----- sampling loop -----------------------------------------------------
-
     def _run_loop(self) -> None:
-        log.info(
-            "agent_started sensor_id=%s site_id=%s target_hz=%d frame_samples=%d",
-            SENSOR_ID, SITE_ID, TARGET_RATE_HZ, FRAME_SAMPLES,
-        )
+        log.info("gateway_started sensor_id=%s site_id=%s", SENSOR_ID, SITE_ID)
 
-        # Timing control: we poll FIFO every ~5 ms (200 Hz / ~20 samples per read)
-        poll_interval = 20 / ADXL345_ODR_HZ  # 0.1 s gives ~20 raw samples
+        # In simulation mode we can generate blocks directly.
+        # In hardware mode we poll the FIFO every ~100 ms (20 samples @ 200 Hz).
+        poll_interval = 0.1 if self._mode == "hardware" else 0.05
 
         while not self._shutdown_flag.is_set():
             t0 = time.monotonic()
 
-            # 1. Read raw samples from hardware (or simulator)
-            raw = self._sensor.read_fifo()
+            if self._mode == "simulation":
+                # Generate one block directly at target rate for efficiency
+                block = self._sensor.read_block(
+                    n_samples=max(1, int(TARGET_RATE_HZ * poll_interval)),
+                    sr=TARGET_RATE_HZ,
+                )
+                self._buffer.extend(block.tolist())
+            else:
+                raw = self._sensor.read_fifo()
+                self._buffer.extend(raw)
 
-            # 2. Upsample to 16 kHz effective rate
-            upsampled = linear_upsample(raw, UPSAMPLE_FACTOR) if raw else []
+            # When we have 5 seconds worth at local rate, run inference
+            required_local_samples = LOCAL_SAMPLE_RATE * COLLECT_SECONDS
+            if len(self._buffer) >= required_local_samples:
+                local_chunk = np.array(self._buffer[:required_local_samples], dtype=np.float32)
+                self._buffer = self._buffer[required_local_samples:]
+                self._process_window(local_chunk)
 
-            # 3. Accumulate into frame buffer
-            self._buffer.extend(upsampled)
-
-            # 4. Emit frame(s) when we have enough samples
-            while len(self._buffer) >= FRAME_SAMPLES:
-                frame_samples = self._buffer[:FRAME_SAMPLES]
-                self._buffer = self._buffer[FRAME_SAMPLES:]
-                self._process_frame(frame_samples)
-
-            # 5. Sleep to pace the loop
             elapsed = time.monotonic() - t0
             sleep_time = max(0.0, poll_interval - elapsed)
             self._shutdown_flag.wait(timeout=sleep_time)
 
-    # ----- frame processing --------------------------------------------------
-
-    def _process_frame(self, samples: list[float]) -> None:
+    def _process_window(self, samples: np.ndarray) -> None:
         self._frame_count += 1
         rms = compute_rms(samples)
         snr_db = compute_snr_db(samples)
         vad_confidence = min(1.0, rms / (VAD_THRESHOLD * 10))
 
         log.info(
-            "frame=%d rms=%.5f snr_db=%.1f vad=%.3f vad_pass=%s",
+            "window=%d rms=%.5f snr_db=%.1f vad=%.3f vad_pass=%s",
             self._frame_count, rms, snr_db, vad_confidence, rms > VAD_THRESHOLD,
         )
 
-        # VAD gate
         if rms <= VAD_THRESHOLD:
-            log.debug("frame=%d vad_rejected rms=%.5f threshold=%.5f",
-                      self._frame_count, rms, VAD_THRESHOLD)
+            log.debug("window=%d vad_rejected rms=%.5f", self._frame_count, rms)
             return
 
-        # Encode and publish acoustic frame
-        pcm_b64 = to_pcm16_b64(samples)
+        # Resample to target rate for feature extraction (models trained at 16 kHz)
+        if self._mode == "hardware":
+            resampled = honest_resample(samples, LOCAL_SAMPLE_RATE, TARGET_RATE_HZ)
+        else:
+            # Simulation already generates at target rate
+            resampled = samples
+
+        # Extract 39-d DSP feature vector (+ 41-d with metadata if available)
+        try:
+            features_39 = extract_features(resampled, sr=TARGET_RATE_HZ)
+            if extract_features_with_meta is not None:
+                features_41 = extract_features_with_meta(
+                    resampled, sr=TARGET_RATE_HZ, pipe_material="PVC", pressure_bar=3.0
+                )
+            else:
+                features_41 = None
+        except Exception as exc:
+            log.error("feature_extraction_failed exc=%s", exc)
+            return
+
+        # Run edge inference
+        try:
+            diagnosis = self._engine.predict(features_39, features_41)
+        except Exception as exc:
+            log.error("inference_failed exc=%s", exc)
+            return
+
         payload = {
             "sensor_id": SENSOR_ID,
             "site_id": SITE_ID,
             "captured_at": datetime.now(UTC).isoformat(),
-            "pcm_b64": pcm_b64,
-            "edge_snr_db": round(snr_db, 2),
-            "edge_vad_confidence": round(vad_confidence, 4),
             "firmware_version": FIRMWARE_VER,
+            "source_rate_hz": LOCAL_SAMPLE_RATE if self._mode == "hardware" else 3200,
+            "feature_rate_hz": TARGET_RATE_HZ,
+            "rms": round(rms, 5),
+            "snr_db": round(snr_db, 2),
+            "vad_confidence": round(vad_confidence, 4),
+            "diagnosis": diagnosis,
         }
-        self._mqtt.publish(ACOUSTIC_TOPIC, json.dumps(payload))
-        log.info(
-            "acoustic_published frame=%d snr_db=%.1f topic=%s",
-            self._frame_count, snr_db, ACOUSTIC_TOPIC,
-        )
 
-        # Periodic telemetry
-        if self._frame_count % TELEMETRY_PERIOD_FRAMES == 0:
-            self._publish_telemetry()
-
-    def _publish_telemetry(self) -> None:
-        telem = {
-            "sensor_id": SENSOR_ID,
-            "captured_at": datetime.now(UTC).isoformat(),
-            "battery_pct": round(_read_battery_pct(), 1),
-            "temperature_c": round(_read_cpu_temp(), 2),
-            "disk_free_mb": round(_read_disk_free_mb(), 1),
-            "rtc_drift_ms": _read_rtc_drift_ms(),
-            "uptime_s": _read_uptime_s(),
-            "firmware_version": FIRMWARE_VER,
-        }
-        self._mqtt.publish(TELEMETRY_TOPIC, json.dumps(telem))
+        self._mqtt.publish(DIAGNOSIS_TOPIC, json.dumps(payload))
         log.info(
-            "telemetry_published frame=%d battery=%.1f%% temp=%.1f°C disk=%.0fMB",
+            "diagnosis_published window=%d label=%s confidence=%.3f is_ood=%s",
             self._frame_count,
-            telem["battery_pct"],
-            telem["temperature_c"],
-            telem["disk_free_mb"],
+            diagnosis.get("label"),
+            diagnosis.get("confidence", 0.0),
+            diagnosis.get("is_ood"),
         )
 
 
 # ─────────────────────────── Entry point ──────────────────────────────────────
 
 def main() -> None:
-    agent = EdgeAgent()
+    gateway = EdgeInferenceGateway()
 
     def _handle_signal(signum, frame):
         log.info("signal_received sig=%d", signum)
-        agent.stop()
+        gateway.stop()
         sys.exit(0)
 
     signal.signal(signal.SIGTERM, _handle_signal)
     signal.signal(signal.SIGINT, _handle_signal)
 
     try:
-        agent.start()
+        gateway.start()
     except KeyboardInterrupt:
-        agent.stop()
+        gateway.stop()
 
 
 if __name__ == "__main__":

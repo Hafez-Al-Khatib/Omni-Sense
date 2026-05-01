@@ -19,6 +19,7 @@ import logging
 import httpx
 import numpy as np
 from prometheus_client import Counter
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from app.config import settings
 from app.features import extract_features  # Local NumPy extraction
@@ -41,6 +42,27 @@ class OrchestratorError(Exception):
         super().__init__(message)
         self.status_code = status_code
         self.detail = detail or {}
+
+
+def _should_retry(exc: Exception) -> bool:
+    if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code >= 500:
+        return True
+    return False
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception(_should_retry),
+    reraise=True,
+)
+async def _post_with_retry(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
+    resp = await client.post(url, **kwargs)
+    if resp.status_code >= 500:
+        resp.raise_for_status()
+    return resp
 
 
 async def extract_features_local(audio_bytes: bytes) -> list[float]:
@@ -115,7 +137,7 @@ async def call_iep2_diagnose(
 
     async with httpx.AsyncClient(timeout=settings.IEP2_TIMEOUT) as client:
         try:
-            response = await client.post(url, json=payload)
+            response = await _post_with_retry(client, url, json=payload)
 
             data = response.json()
 
@@ -177,7 +199,7 @@ async def call_iep3_notify(
     }
     try:
         async with httpx.AsyncClient(timeout=settings.IEP3_TIMEOUT) as client:
-            response = await client.post(url, json=payload)
+            response = await _post_with_retry(client, url, json=payload)
             if response.status_code not in (200, 201):
                 logger.warning(f"IEP3 ticket creation returned {response.status_code}: {response.text}")
     except Exception as e:
@@ -196,7 +218,7 @@ async def call_iep4_classify(audio_bytes: bytes) -> dict | None:
     try:
         async with httpx.AsyncClient(timeout=settings.IEP4_TIMEOUT) as client:
             files = {"audio": ("audio.wav", io.BytesIO(audio_bytes), "audio/wav")}
-            response = await client.post(url, files=files)
+            response = await _post_with_retry(client, url, files=files)
             if response.status_code == 503:
                 logger.info("IEP4 CNN not yet trained — skipping deep path")
                 IEP4_FALLBACK_COUNTER.labels(reason="not_trained").inc()
@@ -285,7 +307,7 @@ async def call_iep2_calibrate(ambient_embeddings: list[list[float]]) -> dict:
 
     async with httpx.AsyncClient(timeout=settings.IEP2_TIMEOUT) as client:
         try:
-            response = await client.post(url, json=payload)
+            response = await _post_with_retry(client, url, json=payload)
 
             if response.status_code != 200:
                 data = response.json()

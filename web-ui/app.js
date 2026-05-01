@@ -2,7 +2,7 @@
  * Omni-Sense Web UI — Application Logic
  * ========================================
  * Handles audio recording, client-side downsampling,
- * and communication with the EEP API.
+ * drag-and-drop uploads, and communication with the EEP API.
  */
 
 // ─── Configuration ───────────────────────────────────────
@@ -12,6 +12,7 @@ const API_BASE = window.location.hostname === 'localhost'
 
 const TARGET_SR = 16000;
 const RECORD_DURATION_S = 5.0;
+const FETCH_TIMEOUT_MS = 30000;
 
 // ─── DOM References ──────────────────────────────────────
 const recordBtn = document.getElementById('recordBtn');
@@ -20,6 +21,7 @@ const recordInner = document.getElementById('recordInner');
 const waveform = document.getElementById('waveform');
 const fileInput = document.getElementById('fileInput');
 const fileName = document.getElementById('fileName');
+const uploadZone = document.getElementById('uploadZone');
 const pipeMaterial = document.getElementById('pipeMaterial');
 const pressureBar = document.getElementById('pressureBar');
 const pressureValue = document.getElementById('pressureValue');
@@ -27,6 +29,9 @@ const submitBtn = document.getElementById('submitBtn');
 const resultSection = document.getElementById('resultSection');
 const oodSection = document.getElementById('oodSection');
 const loadingOverlay = document.getElementById('loadingOverlay');
+const connectionStatus = document.getElementById('connectionStatus');
+const connectionText = document.getElementById('connectionText');
+const toastContainer = document.getElementById('toastContainer');
 
 // ─── State ───────────────────────────────────────────────
 let mediaRecorder = null;
@@ -38,9 +43,90 @@ let recordStartTime = null;
 let timerInterval = null;
 let waveformBars = [];
 
+// ─── Toast Notifications ─────────────────────────────────
+function showToast(message, type = 'error', duration = 5000) {
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+
+    let icon = '⚠️';
+    if (type === 'success') icon = '✅';
+    if (type === 'info') icon = 'ℹ️';
+    if (type === 'error') icon = '❌';
+
+    toast.innerHTML = `
+        <span>${icon}</span>
+        <span>${message}</span>
+        <button class="toast-close" aria-label="Dismiss">&times;</button>
+    `;
+
+    toast.querySelector('.toast-close').addEventListener('click', () => {
+        toast.remove();
+    });
+
+    toastContainer.appendChild(toast);
+
+    if (duration > 0) {
+        setTimeout(() => {
+            toast.remove();
+        }, duration);
+    }
+}
+
+// ─── Health Check ────────────────────────────────────────
+async function checkHealth() {
+    connectionStatus.className = 'status-indicator checking';
+    connectionText.textContent = 'Checking…';
+
+    try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+        const resp = await fetch(`${API_BASE}/health`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+
+        if (resp.ok) {
+            connectionStatus.className = 'status-indicator';
+            connectionText.textContent = 'Online';
+        } else {
+            connectionStatus.className = 'status-indicator offline';
+            connectionText.textContent = 'Degraded';
+        }
+    } catch (err) {
+        connectionStatus.className = 'status-indicator offline';
+        connectionText.textContent = 'Offline';
+        showToast(
+            'Backend appears offline. Analysis will fail unless the server is running.',
+            'warning',
+            6000
+        );
+    }
+}
+
+checkHealth();
+
+// ─── Step Indicator ──────────────────────────────────────
+function updateSteps(step) {
+    const steps = document.querySelectorAll('.step');
+    const lines = [document.getElementById('line1'), document.getElementById('line2')];
+
+    steps.forEach((s, i) => {
+        const num = i + 1;
+        s.classList.remove('active', 'completed');
+        if (num < step) {
+            s.classList.add('completed');
+        } else if (num === step) {
+            s.classList.add('active');
+        }
+    });
+
+    lines.forEach((l, i) => {
+        l.classList.toggle('completed', i + 1 < step);
+    });
+}
+
 // ─── Initialize Waveform Bars ────────────────────────────
 function initWaveform() {
     waveform.innerHTML = '';
+    waveformBars = [];
     for (let i = 0; i < 40; i++) {
         const bar = document.createElement('div');
         bar.className = 'waveform-bar';
@@ -57,12 +143,52 @@ pressureBar.addEventListener('input', () => {
 });
 
 // ─── File Upload ─────────────────────────────────────────
+function handleFile(file) {
+    if (!file) return;
+    const validTypes = ['audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/flac', 'audio/x-flac'];
+    const validExts = ['.wav', '.ogg', '.flac'];
+    const hasValidExt = validExts.some(ext => file.name.toLowerCase().endsWith(ext));
+
+    if (!validTypes.includes(file.type) && !hasValidExt) {
+        showToast('Please upload a WAV, OGG, or FLAC audio file.', 'warning');
+        return;
+    }
+
+    audioBlob = file;
+    fileName.textContent = file.name;
+    submitBtn.disabled = false;
+    updateSteps(2);
+    showToast(`File ready: ${file.name}`, 'success', 3000);
+}
+
 fileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (file) {
-        audioBlob = file;
-        fileName.textContent = file.name;
-        submitBtn.disabled = false;
+    handleFile(e.target.files[0]);
+});
+
+// ─── Drag & Drop ─────────────────────────────────────────
+['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    uploadZone.addEventListener(eventName, (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+    }, false);
+});
+
+['dragenter', 'dragover'].forEach(eventName => {
+    uploadZone.addEventListener(eventName, () => {
+        uploadZone.classList.add('drag-over');
+    }, false);
+});
+
+['dragleave', 'drop'].forEach(eventName => {
+    uploadZone.addEventListener(eventName, () => {
+        uploadZone.classList.remove('drag-over');
+    }, false);
+});
+
+uploadZone.addEventListener('drop', (e) => {
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+        handleFile(files[0]);
     }
 });
 
@@ -113,6 +239,8 @@ async function startRecording() {
             audioBlob = await downsampleToWav(webmBlob);
             fileName.textContent = 'Recorded (5s, 16kHz)';
             submitBtn.disabled = false;
+            updateSteps(2);
+            showToast('Recording captured successfully', 'success', 3000);
         };
 
         mediaRecorder.start(100);
@@ -135,7 +263,11 @@ async function startRecording() {
 
     } catch (err) {
         console.error('Microphone access denied:', err);
-        alert('Microphone access is required for recording. Please grant permission.');
+        showToast(
+            'Microphone access is required for recording. Please grant permission in your browser settings.',
+            'error',
+            6000
+        );
     }
 }
 
@@ -250,6 +382,7 @@ submitBtn.addEventListener('click', async () => {
 
     showLoading(true);
     hideResults();
+    updateSteps(3);
 
     const metadata = JSON.stringify({
         pipe_material: pipeMaterial.value,
@@ -261,10 +394,15 @@ submitBtn.addEventListener('click', async () => {
     formData.append('metadata', metadata);
 
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
         const resp = await fetch(`${API_BASE}/api/v1/diagnose`, {
             method: 'POST',
             body: formData,
+            signal: controller.signal,
         });
+        clearTimeout(timeoutId);
 
         const data = await resp.json();
 
@@ -273,11 +411,30 @@ submitBtn.addEventListener('click', async () => {
         } else if (resp.status === 422 && data.anomaly_score !== undefined) {
             showOODResult(data);
         } else {
-            alert(`Error ${resp.status}: ${data.detail || JSON.stringify(data)}`);
+            const detail = data.detail || JSON.stringify(data);
+            showToast(`Analysis failed: ${detail}`, 'error', 7000);
         }
     } catch (err) {
         console.error('API error:', err);
-        alert('Failed to connect to the API. Is the server running?');
+        if (err.name === 'AbortError') {
+            showToast(
+                'Request timed out. The server may be overloaded or unreachable.',
+                'error',
+                7000
+            );
+        } else if (err.message && err.message.includes('fetch')) {
+            showToast(
+                'Cannot reach the backend. Make sure the API server is running and CORS is enabled.',
+                'error',
+                8000
+            );
+        } else {
+            showToast(
+                'Failed to connect to the API. Is the server running?',
+                'error',
+                7000
+            );
+        }
     } finally {
         showLoading(false);
     }
@@ -303,8 +460,8 @@ function showDiagnosisResult(data) {
 
     // Details
     const labelEl = document.getElementById('resultLabel');
-    labelEl.textContent = data.label;
-    labelEl.className = `result-value badge ${data.label}`;
+    labelEl.textContent = data.label || 'Unknown';
+    labelEl.className = `result-value badge ${(data.label || '').toLowerCase()}`;
 
     document.getElementById('resultAnomaly').textContent = (data.anomaly_score || 0).toFixed(4);
     document.getElementById('resultOOD').textContent = data.is_in_distribution ? '✅ Yes' : '❌ No';
@@ -316,17 +473,20 @@ function showDiagnosisResult(data) {
     probBars.innerHTML = '';
     if (data.probabilities) {
         Object.entries(data.probabilities).forEach(([label, prob]) => {
+            const safeLabel = label.toLowerCase().replace(/\s+/g, '-');
             probBars.innerHTML += `
                 <div class="prob-bar-row">
                     <span class="prob-label">${label}</span>
                     <div class="prob-track">
-                        <div class="prob-fill ${label}" style="width: ${(prob * 100).toFixed(1)}%"></div>
+                        <div class="prob-fill ${safeLabel}" style="width: ${(prob * 100).toFixed(1)}%"></div>
                     </div>
                     <span class="prob-value">${(prob * 100).toFixed(1)}%</span>
                 </div>
             `;
         });
     }
+
+    showToast('Analysis complete!', 'success', 4000);
 }
 
 function showOODResult(data) {
@@ -337,6 +497,8 @@ function showOODResult(data) {
     document.getElementById('oodDetail').textContent =
         data.detail || 'The acoustic signature does not match any known environment.';
     document.getElementById('oodScore').textContent = (data.anomaly_score || 0).toFixed(4);
+
+    showToast('Out-of-distribution sample detected', 'warning', 5000);
 }
 
 function hideResults() {
@@ -346,12 +508,13 @@ function hideResults() {
 
 function showLoading(show) {
     loadingOverlay.style.display = show ? 'flex' : 'none';
+    submitBtn.disabled = show;
 }
 
 // ─── Calibration ─────────────────────────────────────────
 document.getElementById('calibrateBtn')?.addEventListener('click', async () => {
     if (!audioBlob) {
-        alert('Record or upload audio first to use for calibration.');
+        showToast('Record or upload audio first to use for calibration.', 'warning');
         return;
     }
 
@@ -361,26 +524,30 @@ document.getElementById('calibrateBtn')?.addEventListener('click', async () => {
     formData.append('audio', audioBlob, 'ambient.wav');
 
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
         const resp = await fetch(`${API_BASE}/api/v1/calibrate`, {
             method: 'POST',
             body: formData,
+            signal: controller.signal,
         });
+        clearTimeout(timeoutId);
 
         const data = await resp.json();
 
         if (resp.status === 200) {
-            alert(
-                `Calibration successful!\n` +
-                `New threshold: ${data.new_threshold?.toFixed(4)}\n` +
-                `Ambient score mean: ${data.ambient_score_mean?.toFixed(4)}\n` +
-                `Windows used: ${data.embeddings_used}`
+            showToast(
+                `Calibration successful! Threshold: ${data.new_threshold?.toFixed(4)}`,
+                'success',
+                5000
             );
             hideResults();
         } else {
-            alert(`Calibration failed: ${JSON.stringify(data)}`);
+            showToast(`Calibration failed: ${JSON.stringify(data)}`, 'error');
         }
     } catch (err) {
-        alert('Failed to connect for calibration.');
+        showToast('Failed to connect for calibration. Is the server running?', 'error');
     } finally {
         showLoading(false);
     }

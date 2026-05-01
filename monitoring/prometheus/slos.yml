@@ -1,0 +1,117 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# SLO Recording Rules — Omni-Sense
+# Based on Google SRE Book Chapter 4: Service Level Objectives
+# https://sre.google/sre-book/service-level-objectives/
+# ──────────────────────────────────────────────────────────────────────────────
+
+# SLO 1: EEP Availability ≥ 99.9% (30-day window)
+# Burn rate: 2% budget/day → page on-call
+# Burn rate: 14.4x → page immediately
+
+- name: slo.eep.availability
+  interval: 5m
+  rules:
+  - record: slo:eep_availability_ratio_5m
+    expr: |
+      sum(rate(http_requests_total{service="eep",status!~"5.."}[5m]))
+      /
+      sum(rate(http_requests_total{service="eep"}[5m]))
+
+  - record: slo:eep_availability_ratio_1h
+    expr: |
+      sum(rate(http_requests_total{service="eep",status!~"5.."}[1h]))
+      /
+      sum(rate(http_requests_total{service="eep"}[1h]))
+
+  - record: slo:eep_availability_ratio_30d
+    expr: |
+      sum(rate(http_requests_total{service="eep",status!~"5.."}[30d]))
+      /
+      sum(rate(http_requests_total{service="eep"}[30d]))
+
+  # Error budget: (1 - 0.999) = 0.001 = 0.1%
+  - record: slo:eep_error_budget_remaining
+    expr: 0.999 - slo:eep_availability_ratio_30d
+
+  # Burn rate: how fast are we consuming error budget?
+  - record: slo:eep_burn_rate_1h
+    expr: |
+      (1 - slo:eep_availability_ratio_1h)
+      /
+      (1 - 0.999)
+
+# SLO 2: EEP p99 Latency < 2s
+# Measurement: histogram_quantile(0.99) over 1h
+# Alert if p99 > 2s for > 10 min
+
+- name: slo.eep.latency
+  interval: 5m
+  rules:
+  - record: slo:eep_latency_p99_5m
+    expr: |
+      histogram_quantile(0.99,
+        sum(rate(http_request_duration_seconds_bucket{service="eep"}[5m])) by (le)
+      )
+
+  - record: slo:eep_latency_p99_1h
+    expr: |
+      histogram_quantile(0.99,
+        sum(rate(http_request_duration_seconds_bucket{service="eep"}[1h])) by (le)
+      )
+
+  # Latency budget: fraction of requests under 2s
+  - record: slo:eep_latency_budget_5m
+    expr: |
+      sum(rate(http_request_duration_seconds_bucket{service="eep",le="2"}[5m]))
+      /
+      sum(rate(http_request_duration_seconds_count{service="eep"}[5m]))
+
+# SLO 3: IEP2 Inference Success Rate ≥ 99.5%
+# Includes OOD rejections (422) as SUCCESS — they are correct safety behavior
+# Only 5xx counts as failure
+
+- name: slo.iep2.inference
+  interval: 5m
+  rules:
+  - record: slo:iep2_success_ratio_5m
+    expr: |
+      sum(rate(http_requests_total{service="iep2",status!~"5.."}[5m]))
+      /
+      sum(rate(http_requests_total{service="iep2"}[5m]))
+
+  - record: slo:iep2_success_ratio_1h
+    expr: |
+      sum(rate(http_requests_total{service="iep2",status!~"5.."}[1h]))
+      /
+      sum(rate(http_requests_total{service="iep2"}[1h]))
+
+# SLO 4: OOD False Positive Rate < 5%
+# Measured by manual validation of rejected samples
+# In production, this would be fed by IEP3 feedback loop
+
+- name: slo.ood.accuracy
+  interval: 1h
+  rules:
+  - record: slo:ood_false_positive_rate_1h
+    expr: |
+      (
+        sum(rate(iep2_ood_rejections_total[1h]))
+        -
+        sum(rate(iep2_ood_correct_rejections_total[1h]))  # would need new metric
+      )
+      /
+      sum(rate(iep2_ood_rejections_total[1h]))
+
+# SLO 5: Model Drift Detection Latency < 1 hour
+# Time between drift occurring and alert firing
+
+- name: slo.drift.detection
+  interval: 5m
+  rules:
+  - record: slo:drift_detection_lag_seconds
+    expr: |
+      time() - iep4_last_drift_evaluation_timestamp
+
+# Multi-burn-rate alerts (Google SRE Book Chapter 5)
+# Fast burn → page immediately (14.4x = consume 2% budget in 1 hour)
+# Slow burn → ticket (2x = consume 2% budget in 1 day)

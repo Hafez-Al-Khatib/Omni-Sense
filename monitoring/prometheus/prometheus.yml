@@ -2,6 +2,18 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# Load alert rules
+rule_files:
+  - "alert_rules.yml"
+  - "slos.yml"
+  - "alerts-slo.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
 scrape_configs:
   # ── EEP (API Gateway) ──
   - job_name: "eep"
@@ -38,17 +50,6 @@ scrape_configs:
         labels:
           service: "iep4"
           role: "deep_classifier"
-
-  # ── Omni Platform (Streamlit ops console + event bus) ──
-  # Exposes a /metrics endpoint from the Streamlit sidecar; scrape
-  # is best-effort — omit-silently if omni-platform is not running.
-  - job_name: "omni-platform"
-    metrics_path: "/metrics"
-    static_configs:
-      - targets: ["omni-platform:8501"]
-        labels:
-          service: "omni-platform"
-          role: "intelligence"
 
   # ── Prometheus self-monitoring ──
   - job_name: "prometheus"

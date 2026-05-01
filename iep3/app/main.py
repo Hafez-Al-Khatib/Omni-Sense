@@ -28,10 +28,14 @@ Endpoints:
 """
 
 import logging
+import os
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from prometheus_client import Counter, Gauge
 from prometheus_fastapi_instrumentator import Instrumentator
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from app import ticket_store
 from app.schemas import (
@@ -57,11 +61,16 @@ OPEN_TICKETS = Gauge("iep3_open_tickets", "Number of unresolved maintenance tick
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(
     title="Omni-Sense IEP3 — Dispatch & Active Learning",
     description="Converts AI predictions into maintenance tickets; routes feedback to MLflow.",
     version="0.1.0",
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 Instrumentator().instrument(app).expose(app)
 
@@ -80,12 +89,13 @@ def health():
 
 
 @app.post("/api/v1/ticket", response_model=TicketResponse, status_code=201)
-def create_ticket(request: TicketCreateRequest):
+@limiter.limit(os.getenv("OMNI_IEP_RATE_LIMIT", "100/minute"))
+def create_ticket(request: Request, request_body: TicketCreateRequest):
     """
     Create a maintenance ticket from a high-confidence AI prediction.
     Called by EEP as a fire-and-forget background task.
     """
-    ticket = ticket_store.create_ticket(request.model_dump())
+    ticket = ticket_store.create_ticket(request_body.model_dump())
     TICKETS_CREATED.inc()
     OPEN_TICKETS.inc()
     logger.info(
@@ -96,7 +106,8 @@ def create_ticket(request: TicketCreateRequest):
 
 
 @app.post("/api/v1/feedback/{ticket_id}", response_model=FeedbackResponse)
-def submit_feedback(ticket_id: str, request: FeedbackRequest):
+@limiter.limit(os.getenv("OMNI_IEP_RATE_LIMIT", "100/minute"))
+def submit_feedback(request: Request, ticket_id: str, request_body: FeedbackRequest):
     """
     Record field-technician ground-truth feedback for a ticket.
 
@@ -107,9 +118,9 @@ def submit_feedback(ticket_id: str, request: FeedbackRequest):
     try:
         ticket = ticket_store.resolve_ticket(
             ticket_id=ticket_id,
-            ground_truth=request.ground_truth,
-            technician_id=request.technician_id,
-            notes=request.notes,
+            ground_truth=request_body.ground_truth,
+            technician_id=request_body.technician_id,
+            notes=request_body.notes,
         )
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Ticket {ticket_id} not found")

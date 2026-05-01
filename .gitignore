@@ -28,9 +28,11 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+.env.production
 
 # Secrets
-certs/*.key
+certs/*
+!certs/.gitkeep
 omni/configs/passwd
 .env.example
 omnisense-env/
@@ -79,4 +81,12 @@ SCRATCH.md
 TODO_LOCAL.md
 
 .claude/
-"certs/*.key" 
+
+# Hardware — local credentials & generated certs
+hardware/esp32/config.h
+hardware/esp32/certs/*.h
+hardware/esp32/certs/*.key
+hardware/esp32/certs/*.crt
+hardware/esp32/certs/*.csr
+hardware/rpi_edge_agent/certs/*.key
+hardware/rpi_edge_agent/certs/*.crt

@@ -1,0 +1,54 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# SLO-Based Alerts — Multi-Burn-Rate Pattern
+# From Google SRE Book Chapter 5: Alerting on SLOs
+# https://sre.google/sre-book/alerting-on-slos/
+# ──────────────────────────────────────────────────────────────────────────────
+
+groups:
+- name: slo-alerts
+  rules:
+  # ── Fast Burn: 14.4x burn rate → page immediately ──
+  # Consumes 2% budget in 1 hour. Something is seriously wrong.
+  - alert: EEPAvailability_FastBurn
+    expr: slo:eep_burn_rate_1h > 14.4
+    for: 2m
+    labels:
+      severity: critical
+      team: platform
+    annotations:
+      summary: "EEP availability burning budget at {{ $value }}x"
+      description: "EEP error budget is being consumed faster than sustainable. Current burn rate: {{ $value }}x."
+
+  # ── Slow Burn: 2x burn rate → ticket for tomorrow ──
+  # Consumes 2% budget in 1 day. Trending bad, not urgent.
+  - alert: EEPAvailability_SlowBurn
+    expr: slo:eep_burn_rate_1h > 2
+    for: 1h
+    labels:
+      severity: warning
+      team: platform
+    annotations:
+      summary: "EEP availability trending below SLO"
+      description: "EEP has been burning error budget at {{ $value }}x for 1 hour."
+
+  # ── Latency SLO Violation ──
+  - alert: EEPLatency_P99Exceeded
+    expr: slo:eep_latency_p99_5m > 2
+    for: 10m
+    labels:
+      severity: warning
+      team: platform
+    annotations:
+      summary: "EEP p99 latency > 2s"
+      description: "EEP p99 latency is {{ $value }}s, exceeding 2s SLO."
+
+  # ── IEP2 Inference Failure Spike ──
+  - alert: IEP2InferenceFailureSpike
+    expr: slo:iep2_success_ratio_5m < 0.995
+    for: 5m
+    labels:
+      severity: critical
+      team: ml-platform
+    annotations:
+      summary: "IEP2 inference failure rate > 0.5%"
+      description: "IEP2 success ratio dropped to {{ $value }}. Possible model crash or resource exhaustion."

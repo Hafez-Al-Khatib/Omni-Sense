@@ -1,0 +1,48 @@
+# Render Blueprint — Omni-Sense Deployment
+# Easiest cloud option: just push this repo to Render and it deploys automatically.
+# Free tier: 512MB RAM, sleeps after 15 min inactivity (wake on request).
+# 
+# To deploy:
+#   1. Create account at https://render.com
+#   2. New → Blueprint → Connect this GitHub repo
+#   3. Render reads render.yaml and deploys all services
+
+services:
+  - type: web
+    name: omni-sense-eep
+    runtime: docker
+    repo: https://github.com/Hafez-Al-Khatib/Omni-Sense
+    dockerContext: ./eep
+    dockerfilePath: ./eep/Dockerfile
+    envVars:
+      - key: OMNI_IEP2_URL
+        value: https://omni-sense-iep2.onrender.com
+      - key: OMNI_IEP3_URL
+        value: https://omni-sense-iep3.onrender.com
+      - key: OMNI_IEP4_URL
+        value: https://omni-sense-iep4.onrender.com
+    plan: standard
+
+  - type: web
+    name: omni-sense-iep2
+    runtime: docker
+    repo: https://github.com/Hafez-Al-Khatib/Omni-Sense
+    dockerContext: .
+    dockerfilePath: ./iep2/Dockerfile
+    plan: standard
+
+  - type: web
+    name: omni-sense-iep3
+    runtime: docker
+    repo: https://github.com/Hafez-Al-Khatib/Omni-Sense
+    dockerContext: .
+    dockerfilePath: ./iep3/Dockerfile
+    plan: standard
+
+  - type: web
+    name: omni-sense-iep4
+    runtime: docker
+    repo: https://github.com/Hafez-Al-Khatib/Omni-Sense
+    dockerContext: .
+    dockerfilePath: ./iep4/Dockerfile
+    plan: standard

@@ -7,6 +7,7 @@ that at least one end-to-end path completes: frame → detection → hypothesis
 import asyncio
 import contextlib
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 import pytest
 
@@ -38,7 +39,8 @@ async def test_end_to_end_leak_detected_and_dispatched():
     import omni.spatial.fusion as sf_mod
     sf_mod._last_publish = datetime.min.replace(tzinfo=UTC)
 
-    orchestrator.wire()
+    with patch.object(orchestrator, "_load_models"):
+        orchestrator.wire()
     fusion.wire()
     engine.wire()
     router.wire()

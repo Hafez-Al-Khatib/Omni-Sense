@@ -243,14 +243,14 @@ class RetrainingTrigger:
 
     async def _run_retrain_pipeline(self, feedback_n: int) -> bool:
         """Invoke the training script in a subprocess, ML-flow tracked."""
-        script = Path("iep2/scripts/train_models.py")
+        script = Path("scripts/train_models.py")
         if not script.exists():
             # Fall back to the top-level training script
             script = Path("iep2/app/train.py")
         if not script.exists():
             log.error(
                 "Training script not found — cannot retrain. "
-                "Expected iep2/scripts/train_models.py"
+                "Expected scripts/train_models.py"
             )
             return False
 

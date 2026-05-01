@@ -1,4 +1,4 @@
-name: CI — Lint, Test, Model Regression
+name: CI — Lint, Test, Model Regression, Build & Push
 
 on:
   push:
@@ -10,6 +10,9 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io/${{ github.repository_owner }}
 
 jobs:
   # ─── Lint ──────────────────────────────────────────────────────────────────
@@ -123,24 +126,53 @@ jobs:
         env:
           GOLDEN_DATASET_PATH: ../data/golden/golden_dataset_v1.csv
 
-  # ─── Docker builds (main branch only) ─────────────────────────────────────
-  docker-build:
-    name: Docker Build
+  # ─── Docker builds & push (main branch only) ───────────────────────────────
+  docker-build-push:
+    name: Docker Build & Push
     runs-on: ubuntu-latest
     needs: [test-eep, test-iep2, test-iep4, test-omni]
     if: github.ref == 'refs/heads/main'
     strategy:
       matrix:
-        service: [eep, iep2, iep4]   # iep1 removed — YAMNet microservice eliminated
+        include:
+          - service: eep
+            context: ./eep
+            dockerfile: Dockerfile
+            image: omni-sense-eep
+          - service: iep2
+            context: .
+            dockerfile: iep2/Dockerfile
+            image: omni-sense-iep2
+          - service: iep3
+            context: .
+            dockerfile: iep3/Dockerfile
+            image: omni-sense-iep3
+          - service: iep4
+            context: .
+            dockerfile: iep4/Dockerfile
+            image: omni-sense-iep4
+          - service: omni-platform
+            context: .
+            dockerfile: omni/Dockerfile
+            image: omni-sense-platform
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
-      - name: Build ${{ matrix.service }}
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build & push ${{ matrix.service }}
         uses: docker/build-push-action@v5
         with:
-          context: ./${{ matrix.service }}
-          push: false
-          tags: omni-sense/${{ matrix.service }}:${{ github.sha }}
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ matrix.image }}:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ matrix.image }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -148,7 +180,7 @@ jobs:
   compose-smoke:
     name: Docker Compose Smoke Test
     runs-on: ubuntu-latest
-    needs: docker-build
+    needs: docker-build-push
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
@@ -162,15 +194,13 @@ jobs:
           cp certs/ca.key certs/server.key
       - name: Start services
         run: |
-          docker compose up -d eep iep2   # iep1 (YAMNet) removed — DSP features extracted natively in EEP
-          sleep 15
+          docker compose up -d eep iep2 iep3 iep4
+          sleep 20
       - name: Smoke test EEP health
         run: |
           curl -sf http://localhost:8000/health | python3 -c "
           import sys, json
           d = json.load(sys.stdin)
-          # Accept both the canonical 'healthy' and the legacy 'ok' string so
-          # the test is resilient to minor handler rewording.
           assert d.get('status') in ('healthy', 'ok'), f'unexpected: {d}'
           assert d.get('service') == 'eep', f'wrong service: {d}'
           print('EEP health OK')
@@ -182,6 +212,22 @@ jobs:
           d = json.load(sys.stdin)
           assert d.get('status') in ('healthy', 'ok'), f'unexpected: {d}'
           print('IEP2 health OK')
+          "
+      - name: Smoke test IEP3 health
+        run: |
+          curl -sf http://localhost:8003/health | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          assert d.get('status') in ('healthy', 'ok'), f'unexpected: {d}'
+          print('IEP3 health OK')
+          "
+      - name: Smoke test IEP4 health
+        run: |
+          curl -sf http://localhost:8004/health | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          assert d.get('status') in ('healthy', 'ok'), f'unexpected: {d}'
+          print('IEP4 health OK')
           "
       - name: Stop services
         if: always()

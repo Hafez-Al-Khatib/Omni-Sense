@@ -92,6 +92,26 @@ docker-compose up --build
 - **Prometheus**: http://localhost:9090
 - **API Gateway**: http://localhost:8000
 
+## Production Architecture
+
+Omni-Sense is designed using patterns from **Uber Michelangelo**, **Netflix Metaflow**, and **Google SRE**:
+
+| Pattern | Industry Reference | Our Implementation |
+|---------|-------------------|-------------------|
+| **Canary Deployments** | Uber/Google/Netflix | Istio VirtualService with 5% → 50% → 100% traffic shifting |
+| **Shadow Testing** | Uber (mandatory for 75%+ models) | Istio traffic mirroring to validate new model versions |
+| **Service Mesh** | Netflix (700+ services, 100B req/day) | Istio with STRICT mTLS, circuit breakers, outlier detection |
+| **SLO-Based Alerting** | Google SRE Book | Prometheus recording rules + multi-burn-rate alerts |
+| **Distributed Tracing** | Uber Jaeger | OpenTelemetry + Jaeger for end-to-end request flow |
+| **Feature Store** | Uber Michelangelo Palette | Double-write to Redis (online) + TimescaleDB (offline) |
+| **GitOps** | Google Cloud Build + ArgoCD | ArgoCD ApplicationSet with branch-based environment promotion |
+| **12-Factor App** | Heroku Methodology | 12/12 factors compliant with production enhancements |
+
+📖 **Read the full architecture:** [`docs/PRODUCTION_ARCHITECTURE.md`](docs/PRODUCTION_ARCHITECTURE.md)
+📖 **Read 12-Factor compliance:** [`docs/12FACTOR.md`](docs/12FACTOR.md)
+📖 **Read feature store design:** [`docs/FEATURE_STORE.md`](docs/FEATURE_STORE.md)
+📖 **Read MLOps validation:** [`docs/MLOPS_VALIDATION.md`](docs/MLOPS_VALIDATION.md)
+
 ## Engineering Tradeoffs
 
 | Feature | Choice | Justification |

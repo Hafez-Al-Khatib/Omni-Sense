@@ -10,9 +10,11 @@ from typing import Final
 # ─── OOD Detection (Robustness) ──────────────────────────────────────────
 
 # Isolation Forest anomaly score threshold.
-# Rationale: Calibrated 2026-04-12 on golden_v1. Keeps FPR <= 3% on Normal_Operation.
+# Calibrated 2026-05-01 on training data (eep_features.parquet, n=4192).
+# offset_ = -0.6465 (5th percentile), so decision_function=0 separates the
+# 5% most anomalous samples, matching contamination=0.05.
 # Lower = more aggressive rejection of novel environments.
-OOD_IF_THRESHOLD: Final[float] = 0.37
+OOD_IF_THRESHOLD: Final[float] = 0.0
 
 # CNN Autoencoder reconstruction error (MSE) threshold.
 # Rationale: Calibrated 2026-04-15. Detects non-pipe acoustic signatures 

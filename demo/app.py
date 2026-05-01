@@ -1,4 +1,5 @@
 import io
+import os
 
 import folium
 import matplotlib.pyplot as plt
@@ -6,6 +7,7 @@ import numpy as np
 import requests
 import soundfile as sf
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_folium import st_folium
 
 # ==================== HELPER FUNCTIONS ====================
@@ -396,10 +398,14 @@ with st.sidebar:
     st.divider()
 
     st.markdown("### ⚙️ Configuration")
+    default_eep_url = os.getenv(
+        "EEP_URL",
+        "https://omni-eep-745790249979.us-central1.run.app"
+    )
     eep_url = st.text_input(
         "EEP Server URL",
-        value="https://omni-eep-745790249979.us-central1.run.app",
-        help="Enterprise Execution Platform endpoint (Miram's Cloud Run)"
+        value=default_eep_url,
+        help="Enterprise Execution Platform Cloud Run endpoint"
     )
 
     st.markdown("### 📡 System Status")
@@ -411,7 +417,7 @@ with st.sidebar:
             system_online = True
         elif health_response.status_code == 403:
             st.warning("🔒 EEP requires auth (403)")
-            st.caption("Ask Miram to run:\n`gcloud run services add-iam-policy-binding omni-eep --region=us-central1 --member=allUsers --role=roles/run.invoker`")
+            st.caption("Run:\n`gcloud run services add-iam-policy-binding omni-eep --region=us-central1 --member=allUsers --role=roles/run.invoker`")
         else:
             st.warning(f"⚠️ EEP status {health_response.status_code}")
     except requests.exceptions.ConnectionError:
@@ -831,8 +837,8 @@ with tab3:
                         +---------+---------+
                         |                   |
                         v                   v
-                    IEP1 Features      Local Features
-                   (100-d vector)      (Fallback mode)
+                    Local DSP Features
+                   (39-d physics vector)
                         |                   |
                         +-------+-----------+
                                 |
@@ -865,7 +871,7 @@ with tab3:
 
     st.markdown("#### Model Details")
     model_info = {
-        "IEP1": "Feature extraction: 100-dimensional physics-informed features from STFT",
+        "DSP Features": "Local extraction: 39-d physics-informed features (kurtosis, spectral centroid, wavelet)",
         "IEP2": "XGBoost classifier trained on labeled leak/normal data",
         "IEP4": "Random Forest classifier with 100 trees, max_depth=15",
         "IEP3": "Decision aggregator: Weighted voting across ensemble members",
@@ -890,11 +896,11 @@ with tab4:
         - Supports up to 30-second recordings
         - Automatic signal preprocessing
 
-        **Feature Engineering (IEP1)**
-        - Log-power spectrogram with 2048 FFT size
-        - MFCC extraction (13 coefficients + deltas)
-        - Temporal and spectral statistics
-        - Produces 100-dimensional feature vector
+        **Feature Engineering (Local DSP)**
+        - 39-d physics feature extraction from raw vibration
+        - Kurtosis, spectral centroid, wavelet energy, zero-crossing rate
+        - MFCC extraction (13 coefficients)
+        - Compatible with structure-borne accelerometer data
 
         **Ensemble Classification**
         - **IEP2 (XGBoost):** Fast, interpretable decisions
@@ -918,7 +924,7 @@ with tab4:
         st.markdown("#### Service Status")
         services = {
             "EEP":  "Enterprise Execution Platform",
-            "IEP1": "Feature Extraction",
+            "DSP": "Local Feature Extraction",
             "IEP2": "XGBoost Model",
             "IEP4": "Random Forest Model",
             "IEP3": "Decision Aggregator",
@@ -974,13 +980,13 @@ with tab4:
 <text x="275" y="218" text-anchor="middle" font-size="11" fill="#0b3a5e">Signal QA</text>
 <text x="275" y="235" text-anchor="middle" font-size="11" fill="#0b3a5e">Rate Limiting</text>
 <text x="275" y="252" text-anchor="middle" font-size="11" fill="#3a7ab0">FastAPI :8000</text>
-<!-- IEP1 -->
+<!-- DSP -->
 <rect x="412" y="56" width="160" height="108" rx="10" fill="url(#bx)" stroke="#e09a1a" stroke-width="1.5"/>
-<text x="492" y="84" text-anchor="middle" font-size="10" font-weight="700" fill="#c47a10">IEP 1</text>
-<text x="492" y="102" text-anchor="middle" font-size="11" fill="#3a7ab0">Embedding Svc</text>
-<text x="492" y="120" text-anchor="middle" font-size="11" fill="#0b3a5e">YAMNet · TF Hub</text>
-<text x="492" y="138" text-anchor="middle" font-size="11" fill="#0b3a5e">→ 1024-d vector</text>
-<text x="492" y="153" text-anchor="middle" font-size="11" fill="#3a7ab0">:8001</text>
+<text x="492" y="84" text-anchor="middle" font-size="10" font-weight="700" fill="#c47a10">DSP Extract</text>
+<text x="492" y="102" text-anchor="middle" font-size="11" fill="#3a7ab0">Local Features</text>
+<text x="492" y="120" text-anchor="middle" font-size="11" fill="#0b3a5e">Kurtosis · Spectral</text>
+<text x="492" y="138" text-anchor="middle" font-size="11" fill="#0b3a5e">→ 39-d vector</text>
+<text x="492" y="153" text-anchor="middle" font-size="11" fill="#3a7ab0">in-EEP</text>
 <!-- IEP2 -->
 <rect x="412" y="248" width="160" height="128" rx="10" fill="url(#bx)" stroke="#d94040" stroke-width="1.5"/>
 <text x="492" y="276" text-anchor="middle" font-size="10" font-weight="700" fill="#d94040">IEP 2</text>
@@ -999,7 +1005,7 @@ with tab4:
 <text x="718" y="122" text-anchor="middle" font-size="12" fill="#0b3a5e">📊 Prometheus :9090</text>
 <text x="718" y="142" text-anchor="middle" font-size="12" fill="#0b3a5e">📈 Grafana :3000</text>
 <text x="718" y="162" text-anchor="middle" font-size="11" fill="#3a7ab0">Scrapes /metrics</text>
-<text x="718" y="180" text-anchor="middle" font-size="11" fill="#3a7ab0">EEP · IEP1 · IEP2</text>
+<text x="718" y="180" text-anchor="middle" font-size="11" fill="#3a7ab0">EEP · IEP2 · IEP4</text>
 <!-- Animated packets -->
 <circle r="4" fill="#1a8fe3">
   <animateMotion dur="1.8s" repeatCount="indefinite" path="M80,210 L208,210"/>
@@ -1015,7 +1021,10 @@ with tab4:
 </circle>
 </svg>
 """
-    st.components.v1.html(svg, height=440)
+    try:
+        components.html(svg, height=440)
+    except Exception:
+        st.markdown(svg, unsafe_allow_html=True)
 
     st.divider()
     st.markdown("#### Key Technologies")

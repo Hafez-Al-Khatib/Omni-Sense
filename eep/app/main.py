@@ -12,8 +12,14 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
-from slowapi import _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
+try:
+    from slowapi import _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+    HAS_SLOWAPI = True
+except ImportError:  # pragma: no cover
+    RateLimitExceeded = Exception
+    _rate_limit_exceeded_handler = None
+    HAS_SLOWAPI = False
 
 from app.config import settings
 from app.middleware.rate_limiter import limiter
@@ -53,7 +59,8 @@ app.add_middleware(
 
 # ── Rate Limiting ──
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+if HAS_SLOWAPI:
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── Prometheus Instrumentation ──
 Instrumentator(

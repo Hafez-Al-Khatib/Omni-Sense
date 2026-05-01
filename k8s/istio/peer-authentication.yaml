@@ -1,0 +1,41 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# Istio PeerAuthentication — Enforce mTLS STRICT across namespace
+# Pattern: Netflix uses Istio mTLS for 100B requests/day across 700+ services
+# ──────────────────────────────────────────────────────────────────────────────
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: omni-sense
+spec:
+  mtls:
+    mode: STRICT
+---
+# Allow only services within the mesh to communicate
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: default-deny
+  namespace: omni-sense
+spec:
+  {}
+---
+# Explicitly allow EEP → IEP2/IEP3/IEP4 traffic
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: eep-to-ieps
+  namespace: omni-sense
+spec:
+  selector:
+    matchLabels:
+      app: eep
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/omni-sense/sa/eep"]
+    to:
+    - operation:
+        methods: ["POST", "GET"]
+        paths: ["/diagnose", "/health", "/metrics"]

@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars and fill in your values
+gcp_project_id = "my-gcp-project-123"
+gcp_region     = "us-central1"
+gcp_zone       = "us-central1-a"
+
+image_registry = "ghcr.io/my-org"
+image_tag      = "latest"
+
+enable_db_instance = true
+db_instance_name   = "omni-sense-db"

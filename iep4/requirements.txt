@@ -8,5 +8,4 @@ onnxruntime>=1.17
 pydantic>=2.6
 prometheus-client>=0.20
 prometheus-fastapi-instrumentator>=7.0
-# PyTorch is optional — only needed for .pt model fallback
-# torch>=2.0           # uncomment if serving .pt instead of ONNX
+slowapi

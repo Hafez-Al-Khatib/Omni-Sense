@@ -24,7 +24,7 @@ GOLDEN_DATASET_PATH = os.environ.get(
     "../data/golden/golden_dataset_v1.csv",
 )
 
-METRICS_PATH = Path("models/metrics.json")
+METRICS_PATH = Path(__file__).parent.parent / "models" / "metrics.json"
 
 # ── Performance Baselines ──
 MIN_F1_SCORE = 0.92

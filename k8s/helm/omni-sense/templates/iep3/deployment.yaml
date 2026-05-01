@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.iep3.name }}
+  namespace: {{ include "omni-sense.namespace" . }}
+  labels:
+    {{- include "omni-sense.componentLabels" (dict "component" .Values.iep3.name "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.iep3.replicas }}
+  selector:
+    matchLabels:
+      {{- include "omni-sense.selectorLabels" (dict "component" .Values.iep3.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "omni-sense.componentLabels" (dict "component" .Values.iep3.name "context" .) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: {{ .Values.iep3.name }}
+          image: {{ include "omni-sense.image" (dict "repository" .Values.iep3.image.repository "context" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.iep3.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: omni-sense-config
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.iep3.readinessProbe.path }}
+              port: {{ .Values.iep3.readinessProbe.port }}
+            initialDelaySeconds: {{ .Values.iep3.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.iep3.readinessProbe.periodSeconds }}
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.iep3.livenessProbe.path }}
+              port: {{ .Values.iep3.livenessProbe.port }}
+            initialDelaySeconds: {{ .Values.iep3.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.iep3.livenessProbe.periodSeconds }}
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.iep3.resources | nindent 12 }}
+          volumeMounts:
+            - name: iep3-tickets
+              mountPath: /app/tickets
+      volumes:
+        - name: iep3-tickets
+          persistentVolumeClaim:
+            claimName: iep3-tickets-pvc
+      restartPolicy: Always

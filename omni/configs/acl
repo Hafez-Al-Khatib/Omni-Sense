@@ -1,3 +1,11 @@
-topic read omni/#
+# Omni-Sense Mosquitto ACL
+# Listener 1883 (plain TCP) is for local lab / demo use.
+# Listener 8883 (mTLS) is for production hardware in the field.
+
+# Anonymous users (local demo / CI)
+topic readwrite omni/#
+
+# Authenticated sensor nodes (production mTLS)
 pattern write omni/sensor/+/%u/acoustic
 pattern write omni/sensor/+/%u/telemetry
+pattern write omni/diagnosis/+/%u

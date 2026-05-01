@@ -81,11 +81,15 @@ OOD_THRESHOLD  = 1.0
 # IEP4 service URL — set via environment (Docker Compose: http://iep4:8004)
 IEP4_URL = os.getenv("IEP4_URL", "http://iep4:8004")
 
-# ONNX model paths (relative to project root or Docker workdir)
-_OMNI_MODEL_DIR = Path("omni/models")
+# ONNX model paths (relative to this file so imports work regardless of CWD)
+_PROJECT_ROOT = Path(__file__).parent.parent.parent
+_OMNI_MODEL_DIR = _PROJECT_ROOT / "omni" / "models"
 _XGB_ONNX   = _OMNI_MODEL_DIR / "xgb_head.onnx"
 _RF_ONNX    = _OMNI_MODEL_DIR / "rf_head.onnx"
 _THR_FILE   = _OMNI_MODEL_DIR / "omni_threshold.json"
+_IF_ONNX    = _PROJECT_ROOT / "iep2" / "models" / "isolation_forest.onnx"
+_OOD_ONNX   = _PROJECT_ROOT / "iep2" / "models" / "autoencoder_ood.onnx"
+_OOD_THR    = _PROJECT_ROOT / "iep2" / "models" / "autoencoder_threshold.npy"
 
 # SCADA pressure cache: site_id → latest ScadaReading
 _scada_cache: dict[str, ScadaReading] = {}
@@ -102,35 +106,42 @@ _PRESSURE_BOOST_PBAR = 7.0    # pressure above this triggers uplift
 
 _xgb_session  = None
 _rf_session   = None
+_if_session   = None
+_ood_session  = None
+_ood_threshold: float = 0.05
 _thresholds   = {"xgb": 0.60, "rf": 0.55, "fused": 0.60}
 _models_loaded = False
 
 
 def _load_models() -> None:
-    """Try to load ONNX models. Falls back to stubs silently on failure."""
-    global _xgb_session, _rf_session, _thresholds, _models_loaded
+    """Load ONNX models. Raises RuntimeError if any required artifact is missing."""
+    global _xgb_session, _rf_session, _if_session, _ood_session, _ood_threshold, _thresholds, _models_loaded
     try:
         import onnxruntime as ort
-    except ImportError:
-        log.warning("onnxruntime not installed — using physics stubs for all heads")
-        return
+    except ImportError as exc:
+        raise RuntimeError("onnxruntime not installed — cannot load ML heads") from exc
 
-    def _try_load(path: Path, name: str):
-        if path.exists():
-            try:
-                sess = ort.InferenceSession(
-                    str(path), providers=["CPUExecutionProvider"]
-                )
-                log.info("EEP loaded %s ONNX head: %s", name, path)
-                return sess
-            except Exception as exc:
-                log.warning("EEP could not load %s: %s — using stub", name, exc)
-        else:
-            log.info("EEP: %s ONNX model not found at %s — using stub", name, path)
-        return None
+    def _require_load(path: Path, name: str):
+        if not path.exists():
+            raise RuntimeError(f"EEP required ONNX model not found: {path} ({name})")
+        try:
+            sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+            log.info("EEP loaded %s ONNX head: %s", name, path)
+            return sess
+        except Exception as exc:
+            raise RuntimeError(f"EEP could not load {name}: {exc}") from exc
 
-    _xgb_session = _try_load(_XGB_ONNX, "XGB")
-    _rf_session  = _try_load(_RF_ONNX,  "RF")
+    _xgb_session = _require_load(_XGB_ONNX, "XGB")
+    _rf_session  = _require_load(_RF_ONNX,  "RF")
+    _if_session  = _require_load(_IF_ONNX,  "IsolationForest")
+    _ood_session = _require_load(_OOD_ONNX, "AutoencoderOOD")
+
+    if _OOD_THR.exists():
+        _ood_threshold = float(np.load(_OOD_THR))
+        log.info("EEP loaded OOD threshold: %.5f", _ood_threshold)
+    else:
+        _ood_threshold = 0.05
+        log.warning("EEP OOD threshold not found at %s — using default %.4f", _OOD_THR, _ood_threshold)
 
     if _THR_FILE.exists():
         import json
@@ -271,17 +282,43 @@ def _stub_ood(pcm: np.ndarray, sr: int) -> float:
     return float(min(d_leak, d_pump) * 3.0)
 
 
+# ─── Spectrogram helper for OOD autoencoder (numpy-only, no librosa) ──────────
+
+def _stft_spectrogram(pcm: np.ndarray, sr: int = 16_000) -> np.ndarray:
+    """Compute log-magnitude linear STFT spectrogram matching librosa defaults."""
+    n_fft = 1024
+    hop = 512
+    freq_bins = n_fft // 2 + 1  # 513
+    n_frames = 157  # (sr * 5) // hop + 1
+
+    target = sr * 5
+    if len(pcm) < target:
+        pcm = np.pad(pcm, (0, target - len(pcm)))
+    else:
+        pcm = pcm[:target]
+
+    pad = n_fft // 2
+    padded = np.pad(pcm, (pad, pad))
+    window = np.hanning(n_fft)
+    spec = np.empty((freq_bins, n_frames), dtype=np.complex64)
+    for i in range(n_frames):
+        frame = padded[i * hop : i * hop + n_fft]
+        spec[:, i] = np.fft.rfft(frame * window)
+
+    mag = np.log1p(np.abs(spec)).astype(np.float32)
+    mag = (mag - mag.mean()) / (mag.std() + 1e-8)
+    return mag[np.newaxis, :, :]  # (1, 513, 157)
+
+
 # ─── Async head wrappers ──────────────────────────────────────────────────────
 
 async def head_xgb(pcm: np.ndarray, sr: int, feat: np.ndarray | None = None) -> float:
-    await asyncio.sleep(0.001)
     if _xgb_session is not None and feat is not None:
         return _onnx_predict(_xgb_session, feat)
     return _stub_xgb(pcm, sr)
 
 
 async def head_rf(pcm: np.ndarray, sr: int, feat: np.ndarray | None = None) -> float:
-    await asyncio.sleep(0.001)
     if _rf_session is not None and feat is not None:
         return _onnx_predict(_rf_session, feat)
     return _stub_rf(pcm, sr)
@@ -335,12 +372,32 @@ async def head_cnn(pcm: np.ndarray, sr: int, feat: np.ndarray | None = None) -> 
 async def head_isolation_forest(
     pcm: np.ndarray, sr: int, feat: np.ndarray | None = None
 ) -> float:
-    await asyncio.sleep(0.005)
+    if _if_session is not None and feat is not None:
+        try:
+            x = feat[:39].reshape(1, -1).astype(np.float32)
+            iname = _if_session.get_inputs()[0].name
+            result = _if_session.run(None, {iname: x})
+            # result[1] is the decision function score (higher = more normal)
+            score = float(result[1].flatten()[0])
+            # Convert to anomaly score: 0 = normal, positive = anomalous
+            return max(0.0, -score)
+        except Exception as exc:
+            log.warning("IF ONNX inference failed: %s — using stub", exc)
     return _stub_isolation_forest(pcm, sr)
 
 
 async def head_ood(pcm: np.ndarray, sr: int, feat: np.ndarray | None = None) -> float:
-    await asyncio.sleep(0.008)
+    if _ood_session is not None:
+        try:
+            spec = _stft_spectrogram(pcm, sr)
+            x = spec[np.newaxis, :, :, :]  # (1, 1, 513, 157)
+            iname = _ood_session.get_inputs()[0].name
+            recon = _ood_session.run(None, {iname: x})[0]
+            mse = float(np.mean((x - recon) ** 2))
+            # Normalized score: >1 means OOD
+            return mse / _ood_threshold
+        except Exception as exc:
+            log.warning("OOD ONNX inference failed: %s — using stub", exc)
     return _stub_ood(pcm, sr)
 
 

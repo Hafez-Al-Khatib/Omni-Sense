@@ -41,7 +41,7 @@ def export_xgboost(model, output_path: Path, n_features: int) -> None:
         options={"nocl": [True, False], "zipmap": [True, False, "columns"]},
     )
     initial_type = [("float_input", FloatTensorType([None, n_features]))]
-    onnx_model = convert_sklearn(model, initial_types=initial_type)
+    onnx_model = convert_sklearn(model, initial_types=initial_type, target_opset={'ai.onnx.ml': 3})
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "wb") as f:
         f.write(onnx_model.SerializeToString())
@@ -65,7 +65,7 @@ def export_isolation_forest(model, output_path: Path, n_features: int) -> None:
     from skl2onnx.common.data_types import FloatTensorType
 
     initial_type = [("float_input", FloatTensorType([None, n_features]))]
-    onnx_model = convert_sklearn(model, initial_types=initial_type)
+    onnx_model = convert_sklearn(model, initial_types=initial_type, target_opset={'ai.onnx.ml': 3})
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "wb") as f:
         f.write(onnx_model.SerializeToString())

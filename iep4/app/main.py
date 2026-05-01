@@ -33,11 +33,28 @@ Graceful degradation:
 
 import contextlib
 import logging
+import os
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from prometheus_client import Counter, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.util import get_remote_address
+    HAS_SLOWAPI = True
+except ImportError:  # pragma: no cover
+    class _NoOpLimiter:
+        def __init__(self, *args, **kwargs):
+            pass
+        def limit(self, *args, **kwargs):
+            return lambda f: f
+    Limiter = _NoOpLimiter
+    RateLimitExceeded = Exception
+    get_remote_address = lambda: "127.0.0.1"
+    _rate_limit_exceeded_handler = None
+    HAS_SLOWAPI = False
 
 from app.audio import preprocess_audio
 from app.model import cnn_classifier
@@ -75,6 +92,8 @@ OOD_DETECTIONS = Counter(
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(
     title="Omni-Sense IEP4 — Deep CNN Classifier",
     description=(
@@ -85,6 +104,10 @@ app = FastAPI(
     ),
     version="0.2.0",
 )
+
+app.state.limiter = limiter
+if HAS_SLOWAPI:
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 Instrumentator().instrument(app).expose(app)
 
@@ -177,7 +200,8 @@ async def health():
 # ─── Classify Raw (called by Omni orchestrator) ───────────────────────────────
 
 @app.post("/classify_raw")
-async def classify_raw(body: dict):
+@limiter.limit(os.getenv("OMNI_IEP_RATE_LIMIT", "100/minute"))
+async def classify_raw(request: Request, body: dict):
     """
     Classify raw PCM float32 bytes sent as base64 from the Omni orchestrator.
 
@@ -252,7 +276,8 @@ async def classify_raw(body: dict):
 # ─── Classify (WAV file upload) ────────────────────────────────────────────────
 
 @app.post("/classify", response_model=CNNResponse)
-async def classify(audio: UploadFile = File(...)):
+@limiter.limit(os.getenv("OMNI_IEP_RATE_LIMIT", "100/minute"))
+async def classify(request: Request, audio: UploadFile = File(...)):
     """
     Two-stage pipeline: CNN Autoencoder OOD check → spectrogram CNN classification.
 

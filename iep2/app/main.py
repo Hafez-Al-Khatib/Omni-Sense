@@ -9,14 +9,32 @@ Accepts 39-d physics features (DSP) + metadata from EEP, returns diagnosis.
 """
 
 import logging
+import os
 import sys
 from pathlib import Path
 
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Gauge, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
+try:
+    from slowapi import Limiter, _rate_limit_exceeded_handler
+    from slowapi.errors import RateLimitExceeded
+    from slowapi.util import get_remote_address
+    HAS_SLOWAPI = True
+except ImportError:  # pragma: no cover
+    # Fallback when slowapi is not installed (e.g., minimal Docker images)
+    class _NoOpLimiter:
+        def __init__(self, *args, **kwargs):
+            pass
+        def limit(self, *args, **kwargs):
+            return lambda f: f
+    Limiter = _NoOpLimiter
+    RateLimitExceeded = Exception
+    get_remote_address = lambda: "127.0.0.1"
+    _rate_limit_exceeded_handler = None
+    HAS_SLOWAPI = False
 
 # Ensure omni root is in path for config imports
 _PROJ_ROOT = str(Path(__file__).parent.parent.parent)
@@ -104,11 +122,17 @@ def _check_scada_consistency(
     return False, None
 
 # ─── App ──────────────────────────────────────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address)
+
 app = FastAPI(
     title="Omni-Sense IEP2 — Diagnostic & Safety Engine",
     description="OOD-aware acoustic classification: Isolation Forest + XGBoost.",
     version="0.2.0",
 )
+
+app.state.limiter = limiter
+if HAS_SLOWAPI:
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 Instrumentator().instrument(app).expose(app)
 
@@ -151,11 +175,12 @@ async def health():
 
 
 @app.post("/diagnose", response_model=DiagnoseResponse)
-async def diagnose(request: DiagnoseRequest):
+@limiter.limit(os.getenv("OMNI_IEP_RATE_LIMIT", "100/minute"))
+async def diagnose(request: Request, request_body: DiagnoseRequest):
     if not ood_detector.is_loaded or not classifier.is_loaded:
         raise HTTPException(status_code=503, detail="Models not loaded yet")
 
-    embedding = np.array(request.embedding, dtype=np.float32)
+    embedding = np.array(request_body.embedding, dtype=np.float32)
 
     with IEP2_INFERENCE_DURATION.time():
         # ── Stage 1: OOD Detection (Isolation Forest) ──
@@ -186,8 +211,8 @@ async def diagnose(request: DiagnoseRequest):
         # ── Stage 2: Classification (The Specialist) ──
         prediction = classifier.predict(
             embedding=embedding,
-            pipe_material=request.pipe_material,
-            pressure_bar=request.pressure_bar,
+            pipe_material=request_body.pipe_material,
+            pressure_bar=request_body.pressure_bar,
         )
 
         PREDICTION_CONFIDENCE.observe(prediction["confidence"])
@@ -196,7 +221,7 @@ async def diagnose(request: DiagnoseRequest):
         scada_mismatch, scada_detail = _check_scada_consistency(
             label=prediction["label"],
             confidence=prediction["confidence"],
-            pressure_bar=request.pressure_bar,
+            pressure_bar=request_body.pressure_bar,
         )
         if scada_mismatch:
             SCADA_MISMATCHES.inc()
@@ -214,7 +239,8 @@ async def diagnose(request: DiagnoseRequest):
 
 
 @app.post("/calibrate", response_model=CalibrateResponse)
-async def calibrate(request: CalibrateRequest):
+@limiter.limit(os.getenv("OMNI_IEP_RATE_LIMIT", "100/minute"))
+async def calibrate(request: Request, request_body: CalibrateRequest):
     """
     Dynamically calibrate OOD detection thresholds.
 
@@ -224,7 +250,7 @@ async def calibrate(request: CalibrateRequest):
     if not ood_detector.is_loaded:
         raise HTTPException(status_code=503, detail="OOD model not loaded yet")
 
-    embeddings = np.array(request.ambient_embeddings, dtype=np.float32)
+    embeddings = np.array(request_body.ambient_embeddings, dtype=np.float32)
 
     if embeddings.ndim != 2 or embeddings.shape[0] < 1:
         raise HTTPException(
