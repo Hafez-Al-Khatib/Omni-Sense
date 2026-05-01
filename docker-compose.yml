@@ -123,6 +123,24 @@ services:
       - omni-net
     restart: unless-stopped
 
+  # ── MLflow (Model Tracking & Registry) ──────────────────
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.12.1
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlruns
+      - mlflow-db:/mlflow
+    command: >
+      mlflow server
+      --backend-store-uri sqlite:///mlflow/mlflow.db
+      --default-artifact-root /mlruns
+      --host 0.0.0.0
+      --port 5000
+    networks:
+      - omni-net
+    restart: unless-stopped
+
   # ── MQTT Broker (Mosquitto + mTLS) ──────────────────────
   mqtt-broker:
     image: eclipse-mosquitto:2.0
@@ -163,7 +181,8 @@ services:
       - ./certs:/app/certs:ro
       - ./iep2/models:/app/iep2/models:ro     # read trained models for drift eval
       - ./iep3:/app/iep3                       # read/write feedback_log.csv
-      - omni-data:/app/data
+      - ./data:/app/data:ro                    # read golden dataset and synthesized data
+      - omni-data:/app/platform_data           # persistent platform state
     depends_on:
       mqtt-broker:
         condition: service_healthy
@@ -231,3 +250,4 @@ volumes:
   omni-data:
   timescale-data:
   redis-data:
+  mlflow-db:

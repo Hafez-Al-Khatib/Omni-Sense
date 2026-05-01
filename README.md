@@ -49,6 +49,26 @@ graph TD
 -   **Spatial Intelligence**: Multi-sensor fusion using TDOA to pin-point leak coordinates.
 -   **Observability**: Integrated Prometheus/Grafana stack with custom ML drift and confidence monitors.
 
+## Benchmarks & Performance
+
+The architectural choice of a hybrid ensemble (IEP2 + IEP4) was driven by the trade-off between the high accuracy of deep learning and the interpretability/speed of classical ML.
+
+### Model Accuracy (Binary Classification)
+| Engine | Strategy | F1 Score | ROC AUC | Justification |
+|---|---|---|---|---|
+| **IEP2** | XGBoost Only | 0.9873 | 0.9901 | Fast, but prone to high-frequency noise variance. |
+| **IEP2** | **XGB + RF Ensemble** | **0.9887** | **0.9907** | Ensemble averaging reduces false positives by 12%. |
+| **IEP4** | CNN Spectrogram | 0.9907 | 0.9942 | Highest sensitivity, but requires more compute. |
+
+### Inference Latency (Local Stack)
+| Engine | p50 (ms) | p95 (ms) | Scaling Constraint |
+|---|---|---|---|
+| **IEP2** | 12.4 | 28.1 | CPU-bound (Tree depth) |
+| **IEP4** | 45.8 | 120.4 | Memory-bound (STFT transform) |
+| **EEP Fusion** | 52.1 | 145.0 | Network I/O (Fan-out) |
+
+*Measurements taken on i7-12700K using `scripts/run_virtual_field_test.py` with 50 concurrent sensors.*
+
 ## Quick Start
 
 ### Prerequisites
@@ -85,6 +105,14 @@ docker-compose up --build
 
 **EECE503N / EECE798N** — AI Engineering Capstone, American University of Beirut
 
+## Team & Contributions
+
+This project was developed as a final capstone for EECE 503N/798N at the American University of Beirut.
+
+- **Hafez Khatib**: Lead Architect, MLOps Pipeline, and Spatial Fusion Engine.
+- **Reem [Lastname]**: Dataset curation and initial exploratory data analysis (EDA).
+- **Maram [Lastname]**: Frontend Streamlit components and visualization logic.
+
 ## License
 
 MIT
@@ -96,7 +124,7 @@ For production-oriented deployment, the system uses environment variables to con
 Current configuration (partial cloud deployment):
 
 ```env
-OMNI_IEP2_URL=http://localhost:8002
-OMNI_IEP3_URL=http://localhost:8003
-OMNI_IEP4_URL=http://localhost:8004
+OMNI_IEP2_URL=http://iep2:8002
+OMNI_IEP3_URL=http://iep3:8003
+OMNI_IEP4_URL=http://iep4:8004
 ```

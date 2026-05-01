@@ -77,32 +77,77 @@ class RetrainingTrigger:
     # ── In-process quality evaluation ────────────────────────────────────────
 
     def _evaluate_current_model(self) -> dict | None:
-        """Quick quality check: load the current IEP2 models and run 5-fold CV.
+        """Quick quality check: load current IEP2 models and run against the golden dataset.
 
-        Returns dict with f1, roc_auc or None if models can't be loaded.
+        Returns dict with f1, roc_auc or None if evaluation fails.
         """
-        try:
+        import json
+        import pandas as pd
+        import numpy as np
+        import joblib
+        from sklearn.metrics import f1_score, roc_auc_score
 
+        try:
+            metrics_path = MODEL_DIR_IEP2 / "metrics.json"
+            golden_path  = Path("data/golden/golden_dataset_v1.csv")
+
+            if not golden_path.exists():
+                log.warning("Golden dataset not found at %s", golden_path)
+                # Fallback to metrics.json if it exists
+                if metrics_path.exists():
+                    with open(metrics_path) as f:
+                        m = json.load(f)
+                    return {**m, "source": "metrics_json_fallback"}
+                return None
+
+            # Load models
             xgb_path = MODEL_DIR_IEP2 / "xgboost_classifier.joblib"
             rf_path  = MODEL_DIR_IEP2 / "rf_classifier.joblib"
             if not xgb_path.exists() or not rf_path.exists():
+                log.warning("Classifier models not found in %s", MODEL_DIR_IEP2)
                 return None
 
-            # Load training manifest to get labels
-            manifest_path = Path("Processed_audio_16k/xgboost_training_manifest.json")
-            if not manifest_path.exists():
-                return None
+            log.info("Evaluating ensemble against golden dataset...")
+            xgb_model = joblib.load(xgb_path)
+            rf_model  = joblib.load(rf_path)
 
-            # For the demo we return the known-good metrics from MLflow
-            # rather than re-running the full training pipeline
+            # Load golden data
+            df = pd.read_csv(golden_path)
+            
+            # Prepare features (39 vibration features + 2 metadata)
+            # Metadata encoding: PVC=0, Steel=1, Cast_Iron=2
+            MATERIAL_MAP = {"PVC": 0, "Steel": 1, "Cast_Iron": 2}
+            
+            emb_cols = [c for c in df.columns if c.startswith("embedding_")]
+            emb_cols = sorted(emb_cols, key=lambda x: int(x.split("_")[1]))
+            
+            embeddings = df[emb_cols].values.astype(np.float32)
+            pipe_code  = df["pipe_material"].map(MATERIAL_MAP).fillna(0).values.reshape(-1, 1)
+            pressure   = df["pressure_bar"].fillna(3.0).values.reshape(-1, 1)
+            
+            X = np.hstack([embeddings, pipe_code, pressure]).astype(np.float32)
+            y = (df["label"] != "No_Leak").astype(int) # Binary: Leak=1, No_Leak=0
+
+            # Ensemble prediction (average probabilities)
+            # label_map shows: 0: Leak, 1: No_Leak
+            # We want to evaluate weighted f1 and ROC AUC for class 1 (No_Leak) or Leak?
+            # Usually AUC is for the positive class. Let's use class 0 (Leak) as positive for metrics.
+            p_xgb_leak = xgb_model.predict_proba(X)[:, 0]
+            p_rf_leak  = rf_model.predict_proba(X)[:, 0]
+            p_ensemble_leak = 0.6 * p_xgb_leak + 0.4 * p_rf_leak
+            
+            y_leak = (df["label"] != "No_Leak").astype(int) # Leak=1, No_Leak=0
+            y_pred = (p_ensemble_leak > 0.5).astype(int)
+
             return {
-                "f1":      0.9879,
-                "roc_auc": 0.9907,
-                "n_samples": 1336,
-                "source": "mlflow_cached",
+                "f1": float(f1_score(y_leak, y_pred, average="weighted")),
+                "roc_auc": float(roc_auc_score(y_leak, p_ensemble_leak)),
+                "n_samples": len(df),
+                "source": "golden_dataset_eval",
             }
+
         except Exception as e:
-            log.warning("Model evaluation failed: %s", e)
+            log.warning("Model evaluation failed: %s", e, exc_info=True)
             return None
 
     # ── Retrain ──────────────────────────────────────────────────────────────

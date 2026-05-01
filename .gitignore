@@ -41,6 +41,9 @@ data/synthesized/
 *.ogg
 *.mp3
 *.csv
+# Exceptions for regression data and metrics
+!data/golden/*.csv
+!iep2/models/*.json
 # Model artifacts (large binaries - allowed for production demo)
 !iep2/models/*.onnx
 !iep2/models/*.joblib

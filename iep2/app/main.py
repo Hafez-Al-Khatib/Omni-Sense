@@ -159,7 +159,10 @@ async def diagnose(request: DiagnoseRequest):
 
     with IEP2_INFERENCE_DURATION.time():
         # ── Stage 1: OOD Detection (Isolation Forest) ──
-        anomaly_score = ood_detector.score(embedding)
+        # Important: The Isolation Forest is trained on vibration features only (39-d),
+        # while the classifier uses features + metadata (41-d).
+        vibration_features = embedding[:39]
+        anomaly_score = ood_detector.score(vibration_features)
         OOD_ANOMALY_SCORE.set(float(anomaly_score))
         
         # Use centralized threshold from omni.common.config

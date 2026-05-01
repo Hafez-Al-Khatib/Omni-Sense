@@ -79,12 +79,25 @@ class OODDetector:
         if not self._is_loaded:
             raise RuntimeError("OOD model not loaded — call load() first")
 
+        # Ensure embedding is 2D and float32. 
+        # Note: If input includes metadata, caller should slice to vibration features only.
         embedding_2d = embedding.reshape(1, -1).astype(np.float32)
         input_name = self._session.get_inputs()[0].name
-        result = self._session.run(None, {input_name: embedding_2d})
+        
         # ONNX Isolation Forest outputs: [labels, scores]
-        # scores[0][1] is the decision_function value for the inlier class
-        return float(result[1][0][1])
+        # result[0] is labels (e.g. [[-1]])
+        # result[1] is scores (e.g. [[-0.11]])
+        result = self._session.run(None, {input_name: embedding_2d})
+        
+        if len(result) < 2:
+            # Some ONNX converters only output the label or a different structure
+            # Handle the case where only one output is returned (usually labels)
+            logger.warning("ONNX model returned fewer than 2 outputs. Using fallback score.")
+            return 1.0 if result[0][0][0] == 1 else -1.0
+
+        # result[1] has shape (1, 1) or (1,) depending on the converter version
+        score_val = result[1].flatten()[0]
+        return float(score_val)
 
     def is_anomalous(
         self,
