@@ -59,6 +59,8 @@
 
 [2026-05-02 02:00] [claude-opus] hardware/esp32/omni_sensor/omni_features.{h,cpp} written: pure C++ 39-d DSP extractor, bit-for-bit port of omni/eep/features.py (Hanning, radix-2 RFFT, mel filterbank, DCT-II MFCCs). 16 kHz LUTs lazy-built on init(sr). Scratch ~85 KB peak (fits ESP32-S3 320 KB SRAM). Next: tiny feature-space autoencoder + TFLite conversion script.
 
+[2026-05-02 02:30] [claude-opus] scripts/train_edge_autoencoder.py + scripts/tflite_to_c_array.py written. Tried to train: TF 2.21 is `pip install`-ed but its DLL fails to load on this Windows host (likely missing AVX/AVX2 or VC++ runtime). Graceful fallback fired: a 16-byte placeholder model + edge_model_data.h placeholder header were generated so the firmware compiles. Real-model recovery path: `docker run --rm -v $(pwd):/work -w /work python:3.11-slim bash -c "pip install tensorflow-cpu==2.16 pandas pyarrow scikit-learn && python scripts/train_edge_autoencoder.py && python scripts/tflite_to_c_array.py"` (one-off; outputs to iep2/models/ and hardware/esp32/omni_sensor/). Firmware checks OMNI_EDGE_MODEL_PLACEHOLDER and falls back to raw PCM publish if the model is a stub. Continuing with omni_inference.{h,cpp} + .ino integration.
+
 <!-- Append new entries below this line. Format:
 [YYYY-MM-DD HH:MM] [agent] one-line status. Optional second line with link/file path.
 -->

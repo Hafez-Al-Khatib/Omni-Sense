@@ -1,0 +1,40 @@
+# docker-compose.ghcr.yml — GHCR image overlay
+# ============================================================
+# Use this overlay to pull pre-built images from GitHub Container
+# Registry instead of building locally on the server.
+#
+# Usage:
+#   export GHCR_USER=<your-github-username>
+#   echo $GITHUB_PAT | docker login ghcr.io -u $GHCR_USER --password-stdin
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#                  -f docker-compose.ghcr.yml up -d --no-build
+#
+# Requires a GitHub Personal Access Token (classic) with:
+#   - `read:packages` scope (to pull images)
+#   - `write:packages` scope (only if you also want to push from CI)
+#
+# Images are built and pushed automatically by .github/workflows/ci.yml
+# on every push to main. Verify available images at:
+#   https://github.com/<user>/omni-sense/pkgs/container/omni-sense-eep
+# ============================================================
+
+services:
+  eep:
+    image: ghcr.io/${GHCR_USER}/omni-sense-eep:latest
+    pull_policy: always
+
+  iep2:
+    image: ghcr.io/${GHCR_USER}/omni-sense-iep2:latest
+    pull_policy: always
+
+  iep3:
+    image: ghcr.io/${GHCR_USER}/omni-sense-iep3:latest
+    pull_policy: always
+
+  iep4:
+    image: ghcr.io/${GHCR_USER}/omni-sense-iep4:latest
+    pull_policy: always
+
+  omni-platform:
+    image: ghcr.io/${GHCR_USER}/omni-sense-platform:latest
+    pull_policy: always

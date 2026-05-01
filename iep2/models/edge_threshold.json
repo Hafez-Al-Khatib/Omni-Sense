@@ -1,0 +1,5 @@
+{
+  "threshold": 0.5,
+  "placeholder": true,
+  "reason": "tensorflow not installed (Traceback (most recent call last):\n  File \"C:\\Users\\hafez\\AppData\\Roaming\\Python\\Python312\\site-packages\\tensorflow\\python\\pywrap_tensorflow.py\", line 74, in <module>\n    from tensorflow.python._pywrap_tensorflow_internal import *\nImportError: DLL load failed while importing _pywrap_tensorflow_internal: A dynamic link library (DLL) initialization routine failed.\n\n\nFailed to load the native TensorFlow runtime.\nSee https://www.tensorflow.org/install/errors for some common causes and solutions.\nIf you need help, create an issue at https://github.com/tensorflow/tensorflow/issues and include the entire stack trace above this error message.)"
+}

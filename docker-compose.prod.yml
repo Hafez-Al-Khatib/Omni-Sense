@@ -5,7 +5,8 @@
 # This overlay:
 #   1. Adds Caddy as a TLS-terminating reverse proxy (Let's Encrypt)
 #   2. Removes host-port bindings from internal services (Caddy fronts them)
-#   3. Keeps MQTT 1883/8883 exposed directly for ESP32 / RPi hardware
+#   3. Adds memory limits suitable for a 4 GB RAM CX22 instance
+#   4. Keeps MQTT 1883/8883 exposed directly for ESP32 / RPi hardware
 
 services:
   caddy:
@@ -26,19 +27,69 @@ services:
       - grafana
       - prometheus
       - mlflow
+    deploy:
+      resources:
+        limits:
+          memory: 128M
 
   # Disable host port bindings — Caddy is the sole entrypoint for HTTP(S)
   eep:
     ports: !reset []
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  iep2:
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  iep3:
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   grafana:
     ports: !reset []
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   prometheus:
     ports: !reset []
+    deploy:
+      resources:
+        limits:
+          memory: 512M
 
   mlflow:
     ports: !reset []
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  timescaledb:
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  mqtt-broker:
+    deploy:
+      resources:
+        limits:
+          memory: 64M
 
   # MQTT stays exposed on host ports for hardware integration
   # (ESP32 / RPi connect directly, not through Caddy)
