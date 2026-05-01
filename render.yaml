@@ -21,7 +21,9 @@ services:
         value: https://omni-sense-iep3.onrender.com
       - key: OMNI_IEP4_URL
         value: https://omni-sense-iep4.onrender.com
-    plan: standard
+      - key: OMNI_REDIS_URL
+        value: ""
+    plan: free
 
   - type: web
     name: omni-sense-iep2
@@ -29,7 +31,7 @@ services:
     repo: https://github.com/Hafez-Al-Khatib/Omni-Sense
     dockerContext: .
     dockerfilePath: ./iep2/Dockerfile
-    plan: standard
+    plan: free
 
   - type: web
     name: omni-sense-iep3
@@ -37,7 +39,7 @@ services:
     repo: https://github.com/Hafez-Al-Khatib/Omni-Sense
     dockerContext: .
     dockerfilePath: ./iep3/Dockerfile
-    plan: standard
+    plan: free
 
   - type: web
     name: omni-sense-iep4
@@ -45,4 +47,4 @@ services:
     repo: https://github.com/Hafez-Al-Khatib/Omni-Sense
     dockerContext: .
     dockerfilePath: ./iep4/Dockerfile
-    plan: standard
+    plan: free
