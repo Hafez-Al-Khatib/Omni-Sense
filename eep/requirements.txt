@@ -10,3 +10,5 @@ prometheus-client>=0.20
 prometheus-fastapi-instrumentator>=7.0
 slowapi
 redis>=5.0
+tenacity>=8.0
+pydantic-settings>=2.0
