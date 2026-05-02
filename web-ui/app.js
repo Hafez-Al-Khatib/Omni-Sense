@@ -102,6 +102,27 @@ async function checkHealth() {
 }
 
 checkHealth();
+setInterval(checkHealth, 30000);  // periodic health check
+
+// ─── Reset ───────────────────────────────────────────────
+function resetApp() {
+    audioBlob = null;
+    mediaRecorder = null;
+    audioChunks = [];
+    fileName.textContent = '';
+    submitBtn.disabled = true;
+    hideResults();
+    updateSteps(1);
+    // Close any lingering audio context
+    if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close().catch(() => {});
+        audioContext = null;
+    }
+    showToast('Ready for a new sample.', 'info', 2000);
+}
+
+document.getElementById('resetBtn')?.addEventListener('click', resetApp);
+document.getElementById('resetBtnOod')?.addEventListener('click', resetApp);
 
 // ─── Step Indicator ──────────────────────────────────────
 function updateSteps(step) {
@@ -145,7 +166,7 @@ pressureBar.addEventListener('input', () => {
 // ─── File Upload ─────────────────────────────────────────
 function handleFile(file) {
     if (!file) return;
-    const validTypes = ['audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/flac', 'audio/x-flac'];
+    const validTypes = ['audio/wav', 'audio/x-wav', 'audio/wave', 'audio/x-wave', 'audio/ogg', 'audio/flac', 'audio/x-flac'];
     const validExts = ['.wav', '.ogg', '.flac'];
     const hasValidExt = validExts.some(ext => file.name.toLowerCase().endsWith(ext));
 
@@ -154,6 +175,9 @@ function handleFile(file) {
         return;
     }
 
+    if (audioBlob && mediaRecorder) {
+        showToast('Previous recording will be replaced by this upload.', 'info', 3000);
+    }
     audioBlob = file;
     fileName.textContent = file.name;
     submitBtn.disabled = false;
@@ -278,7 +302,15 @@ function stopRecording() {
     isRecording = false;
     recordBtn.classList.remove('recording');
     clearInterval(timerInterval);
-    recordTimer.textContent = '5.0s';
+
+    // Show actual recorded duration
+    const elapsed = recordStartTime ? ((Date.now() - recordStartTime) / 1000).toFixed(1) : '5.0';
+    recordTimer.textContent = elapsed + 's';
+
+    // Close audio context to prevent memory leak
+    if (audioContext && audioContext.state !== 'closed') {
+        audioContext.close().catch(() => {});
+    }
 
     // Reset waveform
     waveformBars.forEach(bar => bar.style.height = '4px');
@@ -440,6 +472,15 @@ submitBtn.addEventListener('click', async () => {
     }
 });
 
+// ─── Utilities ───────────────────────────────────────────
+function escHtml(s) {
+    if (s == null) return '';
+    return String(s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+        .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+window.escHtml = escHtml;
+
 // ─── Display Results ────────────────────────────────────
 function showDiagnosisResult(data) {
     resultSection.style.display = 'block';
@@ -468,21 +509,22 @@ function showDiagnosisResult(data) {
     document.getElementById('resultRMS').textContent = data.signal_quality?.rms?.toFixed(4) || '—';
     document.getElementById('resultLatency').textContent = (data.elapsed_ms || 0).toFixed(0) + 'ms';
 
-    // Probability bars
+    // Probability bars — build with DOM API to avoid injection
     const probBars = document.getElementById('probBars');
     probBars.innerHTML = '';
     if (data.probabilities) {
         Object.entries(data.probabilities).forEach(([label, prob]) => {
             const safeLabel = label.toLowerCase().replace(/\s+/g, '-');
-            probBars.innerHTML += `
-                <div class="prob-bar-row">
-                    <span class="prob-label">${label}</span>
-                    <div class="prob-track">
-                        <div class="prob-fill ${safeLabel}" style="width: ${(prob * 100).toFixed(1)}%"></div>
-                    </div>
-                    <span class="prob-value">${(prob * 100).toFixed(1)}%</span>
+            const row = document.createElement('div');
+            row.className = 'prob-bar-row';
+            row.innerHTML = `
+                <span class="prob-label">${escHtml(label)}</span>
+                <div class="prob-track">
+                    <div class="prob-fill ${escHtml(safeLabel)}" style="width: ${(prob * 100).toFixed(1)}%"></div>
                 </div>
+                <span class="prob-value">${(prob * 100).toFixed(1)}%</span>
             `;
+            probBars.appendChild(row);
         });
     }
 

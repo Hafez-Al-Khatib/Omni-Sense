@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Omni-Sense · Ops Console</title>
 
-<!-- Mapbox GL JS — only external dependency -->
-<link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet" />
-<script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+<!-- Leaflet — free, no API key -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
 <style>
 /* ─── Reset & fonts ─────────────────────────────────────────────────────── */
@@ -129,42 +129,6 @@ body { background: var(--bg0); color: var(--text1); height: 100vh;
   overflow: hidden;
 }
 #map { position: absolute; inset: 0; }
-
-/* ─── Token gate ─────────────────────────────────────────────────────────── */
-#token-gate {
-  position: absolute;
-  inset: 0;
-  background: var(--bg0);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 100;
-  flex-direction: column;
-  gap: 16px;
-}
-#token-gate h2 { color: var(--text0); font-size: 20px; }
-#token-gate p  { color: var(--text2); font-size: 13px; max-width: 360px;
-                  text-align: center; line-height: 1.5; }
-#token-input {
-  width: 360px;
-  padding: 10px 14px;
-  background: var(--bg1);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text0);
-  font-size: 13px;
-}
-#token-submit {
-  padding: 10px 24px;
-  background: var(--accent);
-  border: none;
-  border-radius: 6px;
-  color: white;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-}
-#token-submit:hover { filter: brightness(1.1); }
 
 /* ─── Side panels ────────────────────────────────────────────────────────── */
 #right-panel {
@@ -289,16 +253,23 @@ body { background: var(--bg0); color: var(--text1); height: 100vh;
 .sensor-batt { color: var(--text2); font-variant-numeric: tabular-nums; }
 .sensor-p { font-weight: 700; font-variant-numeric: tabular-nums; }
 
-/* ─── Mapbox popup ───────────────────────────────────────────────────────── */
-.mapboxgl-popup-content {
+/* ─── Leaflet popup dark theme ───────────────────────────────────────────── */
+.dark-popup .leaflet-popup-content-wrapper {
   background: var(--bg1) !important;
   border: 1px solid var(--border) !important;
   border-radius: 8px !important;
-  padding: 14px 16px !important;
   color: var(--text1) !important;
-  min-width: 240px;
 }
-.mapboxgl-popup-tip { display: none !important; }
+.dark-popup .leaflet-popup-content {
+  margin: 14px 16px !important;
+  min-width: 240px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.dark-popup .leaflet-popup-tip {
+  background: var(--bg1) !important;
+  border: 1px solid var(--border) !important;
+}
 .popup-title { font-size: 14px; font-weight: 700; color: var(--text0);
                 margin-bottom: 10px; border-bottom: 1px solid var(--border);
                 padding-bottom: 8px; }
@@ -347,7 +318,7 @@ body { background: var(--bg0); color: var(--text1); height: 100vh;
   border-radius: 8px;
   padding: 10px 14px;
   font-size: 11px;
-  z-index: 5;
+  z-index: 800;
   pointer-events: none;
 }
 .legend-row { display: flex; align-items: center; gap: 7px; margin: 3px 0; }
@@ -364,19 +335,10 @@ body { background: var(--bg0); color: var(--text1); height: 100vh;
 
 <body>
 
-<!-- ─── Token gate ──────────────────────────────────────────────────────── -->
-<div id="token-gate">
-  <h2>Omni-Sense Ops Console</h2>
-  <p>Enter your Mapbox public token to initialize the map.<br>
-     It will be saved in localStorage for future sessions.</p>
-  <input id="token-input" type="text" placeholder="pk.eyJ1IjoiY..." />
-  <button id="token-submit">Launch Dashboard</button>
-</div>
-
 <!-- ─── Header ─────────────────────────────────────────────────────────── -->
 <div id="header">
   <div class="logo">Omni<span>-Sense</span> &middot; Ops Console</div>
-  <span style="font-size:11px;color:var(--text2);margin-left:4px;">Beirut Water Network</span>
+  <span style="font-size:11px;color:var(--text2);margin-left:4px;">Live Sensor Mesh</span>
   <div class="spacer"></div>
   <div id="time-display">--:--:--</div>
   <div id="ws-status">
@@ -481,7 +443,7 @@ const state = {
 
 // Pulse markers indexed by sensor_id
 const pulseMarkers = {};
-// Mapbox circle markers
+// Leaflet markers
 const sensorMarkers = {};
 // Current popup
 let activePopup = null;
@@ -491,48 +453,22 @@ let wsReconnectTimer = null;
 let wsReconnectDelay = 1000;
 // Map instance
 let map = null;
+let hypLayerGroup = null;
+let pipeLayer = null;
 // Frame counter for FPS
 let frameCounter = 0;
 let lastFpsReset = Date.now();
 
-// ─────────────────────────── Token handling ──────────────────────────────────
-
-function getToken() {
-  const params = new URLSearchParams(window.location.search);
-  if (params.has('token')) return params.get('token');
-  return localStorage.getItem('mapbox_token') || '';
-}
-
-function saveToken(token) {
-  localStorage.setItem('mapbox_token', token);
-}
-
-document.getElementById('token-submit').addEventListener('click', () => {
-  const token = document.getElementById('token-input').value.trim();
-  if (!token.startsWith('pk.')) {
-    alert('Token should start with pk.');
-    return;
-  }
-  saveToken(token);
-  initDashboard(token);
-});
-
 // ─────────────────────────── Init ───────────────────────────────────────────
 
-function initDashboard(token) {
-  document.getElementById('token-gate').style.display = 'none';
-  initMap(token);
+function initDashboard() {
+  initMap();
   initWebSocket();
   initClock();
   setInterval(updateStats, 1000);
 }
 
-const existingToken = getToken();
-if (existingToken) {
-  document.getElementById('token-gate').style.display = 'none';
-  // Defer init until DOM is fully ready
-  window.addEventListener('load', () => initDashboard(existingToken));
-}
+window.addEventListener('load', initDashboard);
 
 // ─────────────────────────── Clock ──────────────────────────────────────────
 
@@ -548,51 +484,42 @@ function initClock() {
 
 // ─────────────────────────── Map ────────────────────────────────────────────
 
-// Beirut pipe network — Hamra and Verdun districts, 8+ realistic segments
+// Demo pipe network — can be replaced with any GeoJSON from the backend
 const PIPE_NETWORK = {
   type: 'FeatureCollection',
   features: [
-    // Hamra district — north–south trunk
     { type: 'Feature', properties: { id: 'P-HAMRA-A12', rul_days: 400 },
       geometry: { type: 'LineString', coordinates: [
         [35.4810, 33.9000], [35.4820, 33.8985], [35.4828, 33.8978]
       ]}},
-    // Hamra — east branch
     { type: 'Feature', properties: { id: 'P-HAMRA-A13', rul_days: 210 },
       geometry: { type: 'LineString', coordinates: [
         [35.4828, 33.8978], [35.4840, 33.8982], [35.4845, 33.8985]
       ]}},
-    // Hamra — west connector
     { type: 'Feature', properties: { id: 'P-HAMRA-A14', rul_days: 75 },
       geometry: { type: 'LineString', coordinates: [
         [35.4810, 33.9000], [35.4800, 33.8990], [35.4795, 33.8970]
       ]}},
-    // Hamra — south spur to Verdun
     { type: 'Feature', properties: { id: 'P-HAMRA-VERDUN-L1', rul_days: 18 },
       geometry: { type: 'LineString', coordinates: [
         [35.4828, 33.8978], [35.4850, 33.8960], [35.4870, 33.8940], [35.4890, 33.8920]
       ]}},
-    // Verdun — main arterial
     { type: 'Feature', properties: { id: 'P-VERDUN-B07', rul_days: 320 },
       geometry: { type: 'LineString', coordinates: [
         [35.4890, 33.8920], [35.4900, 33.8910], [35.4910, 33.8840]
       ]}},
-    // Verdun — east branch
     { type: 'Feature', properties: { id: 'P-VERDUN-B08', rul_days: 155 },
       geometry: { type: 'LineString', coordinates: [
         [35.4910, 33.8840], [35.4930, 33.8850], [35.4950, 33.8860]
       ]}},
-    // Cross-district connector
     { type: 'Feature', properties: { id: 'P-CROSS-C01', rul_days: 95 },
       geometry: { type: 'LineString', coordinates: [
         [35.4845, 33.8985], [35.4870, 33.8985], [35.4900, 33.8970], [35.4920, 33.8940]
       ]}},
-    // Achrafieh connection
     { type: 'Feature', properties: { id: 'P-ACHRAFIEH-C02', rul_days: 440 },
       geometry: { type: 'LineString', coordinates: [
         [35.4920, 33.8940], [35.5000, 33.8900], [35.5100, 33.8890], [35.5230, 33.8890]
       ]}},
-    // Hamra internal loop
     { type: 'Feature', properties: { id: 'P-HAMRA-LOOP', rul_days: 28 },
       geometry: { type: 'LineString', coordinates: [
         [35.4795, 33.8970], [35.4800, 33.8950], [35.4810, 33.8940], [35.4828, 33.8950]
@@ -600,7 +527,7 @@ const PIPE_NETWORK = {
   ]
 };
 
-// Sensor locations (seeded from omni/main.py)
+// Sensor seed — populated dynamically from WebSocket; these are demo coords
 const SENSORS_SEED = [
   { sensor_id: 'S-HAMRA-001',      site_id: 'beirut/hamra',     lat: 33.8978, lon: 35.4828 },
   { sensor_id: 'S-HAMRA-002',      site_id: 'beirut/hamra',     lat: 33.8985, lon: 35.4845 },
@@ -615,144 +542,79 @@ function rulColor(rul_days) {
   return '#f85149';
 }
 
-function initMap(token) {
-  mapboxgl.accessToken = token;
-
-  map = new mapboxgl.Map({
-    container: 'map',
-    style: 'mapbox://styles/mapbox/dark-v11',
-    center: [35.5018, 33.8938],
-    zoom: 13,
+function initMap() {
+  map = L.map('map', {
+    zoomControl: false,
     attributionControl: false,
   });
 
-  map.addControl(new mapboxgl.NavigationControl(), 'top-left');
-  map.addControl(new mapboxgl.ScaleControl({ unit: 'metric' }), 'bottom-right');
+  L.control.zoom({ position: 'top-left' }).addTo(map);
+  L.control.scale({ metric: true, imperial: false, position: 'bottom-right' }).addTo(map);
 
-  map.on('load', () => {
-    // ── Pipe network ──────────────────────────────────────────────────────
-    // Add coloured layers per RUL band
-    const rulBands = [
-      { filter: ['>',  ['get', 'rul_days'], 365], color: '#3fb950', width: 3 },
-      { filter: ['all', ['>', ['get','rul_days'], 90], ['<=',['get','rul_days'],365]], color: '#d29922', width: 3 },
-      { filter: ['all', ['>', ['get','rul_days'], 30], ['<=',['get','rul_days'], 90]], color: '#db6d28', width: 4 },
-      { filter: ['<=', ['get', 'rul_days'], 30], color: '#f85149', width: 5 },
-    ];
+  // CartoDB Dark Matter — free dark tiles, no API key
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 19,
+    subdomains: 'abcd',
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+  }).addTo(map);
 
-    map.addSource('pipes', { type: 'geojson', data: PIPE_NETWORK });
+  // Pipe network GeoJSON
+  pipeLayer = L.geoJson(PIPE_NETWORK, {
+    style: feature => ({
+      color: rulColor(feature.properties.rul_days),
+      weight: feature.properties.rul_days <= 30 ? 4 : 3,
+      opacity: 0.9,
+    }),
+    onEachFeature: (feature, layer) => {
+      layer.on('click', () => {
+        const p = feature.properties;
+        const color = rulColor(p.rul_days);
+        const risk = p.rul_days > 365 ? 'Low' : p.rul_days > 90 ? 'Moderate' : p.rul_days > 30 ? 'Elevated' : 'Critical';
+        layer.bindPopup(`
+          <div class="popup-title">Pipe Segment</div>
+          <div class="popup-grid">
+            <span class="popup-key">ID</span><span class="popup-val">${escHtml(p.id)}</span>
+            <span class="popup-key">RUL</span><span class="popup-val" style="color:${color}">${p.rul_days} days</span>
+            <span class="popup-key">Risk</span><span class="popup-val" style="color:${color}">${risk}</span>
+          </div>
+        `, { closeButton: false, className: 'dark-popup' }).openPopup();
+      });
+    },
+  }).addTo(map);
 
-    // Glow layer underneath
-    map.addLayer({
-      id: 'pipes-glow',
-      type: 'line',
-      source: 'pipes',
-      paint: {
-        'line-color': ['case',
-          ['>', ['get','rul_days'], 365], '#3fb950',
-          ['>', ['get','rul_days'], 90],  '#d29922',
-          ['>', ['get','rul_days'], 30],  '#db6d28',
-          '#f85149'
-        ],
-        'line-width': 10,
-        'line-blur': 8,
-        'line-opacity': 0.25,
-      }
-    });
+  // Hypothesis uncertainty circles
+  hypLayerGroup = L.layerGroup().addTo(map);
 
-    map.addLayer({
-      id: 'pipes-main',
-      type: 'line',
-      source: 'pipes',
-      paint: {
-        'line-color': ['case',
-          ['>', ['get','rul_days'], 365], '#3fb950',
-          ['>', ['get','rul_days'], 90],  '#d29922',
-          ['>', ['get','rul_days'], 30],  '#db6d28',
-          '#f85149'
-        ],
-        'line-width': ['case',
-          ['<=', ['get','rul_days'], 30], 4,
-          3
-        ],
-        'line-opacity': 0.9,
-      }
-    });
-
-    // Pipe segment ID labels
-    map.addLayer({
-      id: 'pipes-labels',
-      type: 'symbol',
-      source: 'pipes',
-      layout: {
-        'symbol-placement': 'line-center',
-        'text-field': ['get', 'id'],
-        'text-size': 9,
-        'text-offset': [0, -0.8],
-      },
-      paint: {
-        'text-color': '#8b949e',
-        'text-halo-color': '#161b22',
-        'text-halo-width': 1,
-      }
-    });
-
-    // ── Hypothesis circles ────────────────────────────────────────────────
-    map.addSource('hypotheses', {
-      type: 'geojson',
-      data: { type: 'FeatureCollection', features: [] }
-    });
-    map.addLayer({
-      id: 'hyp-radius',
-      type: 'circle',
-      source: 'hypotheses',
-      paint: {
-        'circle-radius': ['interpolate', ['linear'], ['zoom'],
-          11, ['/', ['get','uncertainty_m'], 5],
-          15, ['/', ['get','uncertainty_m'], 1],
-        ],
-        'circle-color': 'rgba(188, 140, 255, 0.15)',
-        'circle-stroke-color': '#bc8cff',
-        'circle-stroke-width': 1.5,
-        'circle-stroke-opacity': 0.6,
-      }
-    });
-
-    // ── Seed sensor markers ───────────────────────────────────────────────
-    SENSORS_SEED.forEach(s => {
-      state.sensors[s.sensor_id] = {
-        ...s,
-        last_p_leak: 0,
-        battery_pct: 100,
-        temperature_c: 25,
-        is_healthy: true,
-        last_seen: null,
-        xgb_p: 0, rf_p: 0, cnn_p: null, ood: 0, rul: null,
-      };
-      addSensorMarker(s.sensor_id, s.lat, s.lon);
-    });
-
-    updateSensorList();
+  // Seed sensors
+  SENSORS_SEED.forEach(s => {
+    state.sensors[s.sensor_id] = {
+      ...s,
+      last_p_leak: 0,
+      battery_pct: 100,
+      temperature_c: 25,
+      is_healthy: true,
+      last_seen: null,
+      xgb_p: 0, rf_p: 0, cnn_p: null, ood: 0, rul: null,
+    };
+    addSensorMarker(s.sensor_id, s.lat, s.lon);
   });
 
-  // Pipe segment click tooltip
-  map.on('click', 'pipes-main', (e) => {
-    const props = e.features[0].properties;
-    const color = rulColor(props.rul_days);
-    new mapboxgl.Popup({ closeButton: false, maxWidth: '260px' })
-      .setLngLat(e.lngLat)
-      .setHTML(`
-        <div class="popup-title">Pipe Segment</div>
-        <div class="popup-grid">
-          <span class="popup-key">ID</span><span class="popup-val">${props.id}</span>
-          <span class="popup-key">RUL</span>
-          <span class="popup-val" style="color:${color}">${props.rul_days} days</span>
-          <span class="popup-key">Risk</span>
-          <span class="popup-val" style="color:${color}">${props.rul_days>365?'Low':props.rul_days>90?'Moderate':props.rul_days>30?'Elevated':'Critical'}</span>
-        </div>`)
-      .addTo(map);
-  });
-  map.on('mouseenter', 'pipes-main', () => { map.getCanvas().style.cursor = 'pointer'; });
-  map.on('mouseleave', 'pipes-main', () => { map.getCanvas().style.cursor = ''; });
+  // Fit map to sensor bounds (works for any location in the world)
+  fitMapToSensors();
+  updateSensorList();
+}
+
+function fitMapToSensors() {
+  const coords = Object.values(state.sensors)
+    .filter(s => s.lat && s.lon)
+    .map(s => [s.lat, s.lon]);
+  if (coords.length === 0) {
+    map.setView([33.8938, 35.5018], 13); // fallback to demo area
+  } else if (coords.length === 1) {
+    map.setView(coords[0], 14);
+  } else {
+    map.fitBounds(coords, { padding: [60, 60], maxZoom: 16 });
+  }
 }
 
 function addSensorMarker(sensor_id, lat, lon) {
@@ -766,19 +628,23 @@ function addSensorMarker(sensor_id, lat, lon) {
   `;
   el.title = sensor_id;
 
-  const marker = new mapboxgl.Marker({ element: el, anchor: 'center' })
-    .setLngLat([lon, lat])
-    .addTo(map);
+  const icon = L.divIcon({
+    className: '',
+    html: el,
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
+  });
 
-  el.addEventListener('click', () => showSensorPopup(sensor_id, lat, lon));
-  sensorMarkers[sensor_id] = { marker, el };
+  const marker = L.marker([lat, lon], { icon }).addTo(map);
+  marker.on('click', () => showSensorPopup(sensor_id, lat, lon));
+  sensorMarkers[sensor_id] = { marker, el, lat, lon };
 }
 
 function updateSensorMarker(sensor_id) {
   const s = state.sensors[sensor_id];
   if (!s || !sensorMarkers[sensor_id]) return;
 
-  const { el } = sensorMarkers[sensor_id];
+  const { el, marker } = sensorMarkers[sensor_id];
   const p = s.last_p_leak;
   const size = 12 + Math.round(p * 10);  // 12–22px based on p_leak
   let color, glow;
@@ -796,11 +662,16 @@ function updateSensorMarker(sensor_id) {
   el.style.background = color;
   el.style.boxShadow = `0 0 ${size}px ${glow}`;
 
+  marker.setIcon(L.divIcon({
+    className: '',
+    html: el,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  }));
+
   // Manage pulse animation for active leaks
   if (p >= 0.6) {
-    if (!pulseMarkers[sensor_id]) {
-      addPulseMarker(sensor_id, s.lat, s.lon);
-    }
+    if (!pulseMarkers[sensor_id]) addPulseMarker(sensor_id, s.lat, s.lon);
   } else {
     removePulseMarker(sensor_id);
   }
@@ -811,55 +682,65 @@ function addPulseMarker(sensor_id, lat, lon) {
   const el = document.createElement('div');
   el.className = 'pulse-marker';
   el.innerHTML = '<div class="pulse-marker-inner"></div>';
-  const m = new mapboxgl.Marker({ element: el, anchor: 'center' })
-    .setLngLat([lon, lat])
-    .addTo(map);
+  const icon = L.divIcon({
+    className: '',
+    html: el,
+    iconSize: [32, 32],
+    iconAnchor: [16, 16],
+  });
+  const m = L.marker([lat, lon], { icon, zIndexOffset: -100 }).addTo(map);
   pulseMarkers[sensor_id] = m;
 }
 
 function removePulseMarker(sensor_id) {
   if (pulseMarkers[sensor_id]) {
-    pulseMarkers[sensor_id].remove();
+    map.removeLayer(pulseMarkers[sensor_id]);
     delete pulseMarkers[sensor_id];
   }
 }
 
 function showSensorPopup(sensor_id, lat, lon) {
-  if (activePopup) activePopup.remove();
   const s = state.sensors[sensor_id] || {};
   const p = s.last_p_leak || 0;
   const pColor = p >= 0.6 ? 'var(--red)' : p >= 0.3 ? 'var(--yellow)' : 'var(--green)';
   const lastSeen = s.last_seen ? new Date(s.last_seen).toISOString().slice(11,19) : '—';
-
   const oodColor = (s.ood || 0) > 1.0 ? 'var(--orange)' : 'var(--text0)';
 
-  activePopup = new mapboxgl.Popup({ closeButton: true, maxWidth: '280px' })
-    .setLngLat([lon, lat])
-    .setHTML(`
-      <div class="popup-title">${sensor_id}</div>
-      <div class="popup-grid">
-        <span class="popup-key">Site</span>       <span class="popup-val">${s.site_id || '—'}</span>
-        <span class="popup-key">P(leak)</span>    <span class="popup-val" style="color:${pColor}">${(p*100).toFixed(1)}%</span>
-        <span class="popup-key">XGB</span>        <span class="popup-val">${((s.xgb_p||0)*100).toFixed(1)}%</span>
-        <span class="popup-key">RF</span>         <span class="popup-val">${((s.rf_p||0)*100).toFixed(1)}%</span>
-        <span class="popup-key">CNN</span>        <span class="popup-val">${s.cnn_p!=null?((s.cnn_p)*100).toFixed(1)+'%':'—'}</span>
-        <span class="popup-key">OOD score</span> <span class="popup-val" style="color:${oodColor}">${(s.ood||0).toFixed(3)}</span>
-        <span class="popup-key">Battery</span>   <span class="popup-val">${(s.battery_pct||100).toFixed(0)}%</span>
-        <span class="popup-key">Temp</span>      <span class="popup-val">${(s.temperature_c||0).toFixed(1)} °C</span>
-        <span class="popup-key">Last seen</span> <span class="popup-val">${lastSeen}</span>
-        <span class="popup-key">Status</span>    <span class="popup-val" style="color:${s.is_healthy?'var(--green)':'var(--red)'}">${s.is_healthy?'Healthy':'Degraded'}</span>
-      </div>`)
-    .addTo(map);
+  const html = `
+    <div class="popup-title">${escHtml(sensor_id)}</div>
+    <div class="popup-grid">
+      <span class="popup-key">Site</span>       <span class="popup-val">${escHtml(s.site_id || '—')}</span>
+      <span class="popup-key">P(leak)</span>    <span class="popup-val" style="color:${pColor}">${(p*100).toFixed(1)}%</span>
+      <span class="popup-key">XGB</span>        <span class="popup-val">${((s.xgb_p||0)*100).toFixed(1)}%</span>
+      <span class="popup-key">RF</span>         <span class="popup-val">${((s.rf_p||0)*100).toFixed(1)}%</span>
+      <span class="popup-key">CNN</span>        <span class="popup-val">${s.cnn_p!=null?((s.cnn_p)*100).toFixed(1)+'%':'—'}</span>
+      <span class="popup-key">OOD score</span> <span class="popup-val" style="color:${oodColor}">${(s.ood||0).toFixed(3)}</span>
+      <span class="popup-key">Battery</span>   <span class="popup-val">${(s.battery_pct||100).toFixed(0)}%</span>
+      <span class="popup-key">Temp</span>      <span class="popup-val">${(s.temperature_c||0).toFixed(1)} °C</span>
+      <span class="popup-key">Last seen</span> <span class="popup-val">${lastSeen}</span>
+      <span class="popup-key">Status</span>    <span class="popup-val" style="color:${s.is_healthy?'var(--green)':'var(--red)'}">${s.is_healthy?'Healthy':'Degraded'}</span>
+    </div>`;
+
+  L.popup({ className: 'dark-popup', maxWidth: 280, closeButton: true })
+    .setLatLng([lat, lon])
+    .setContent(html)
+    .openOn(map);
 }
 
 function updateHypothesesLayer() {
-  if (!map || !map.getSource('hypotheses')) return;
-  const features = state.hypotheses.slice(-20).map(h => ({
-    type: 'Feature',
-    geometry: { type: 'Point', coordinates: [h.lon, h.lat] },
-    properties: { uncertainty_m: h.uncertainty_m, pipe_segment_id: h.pipe_segment_id },
-  }));
-  map.getSource('hypotheses').setData({ type: 'FeatureCollection', features });
+  if (!hypLayerGroup) return;
+  hypLayerGroup.clearLayers();
+
+  state.hypotheses.slice(-20).forEach(h => {
+    L.circle([h.lat, h.lon], {
+      radius: h.uncertainty_m || 50,
+      color: '#bc8cff',
+      fillColor: '#bc8cff',
+      fillOpacity: 0.15,
+      weight: 1.5,
+      opacity: 0.6,
+    }).addTo(hypLayerGroup);
+  });
 }
 
 // ─────────────────────────── WebSocket ──────────────────────────────────────
@@ -1002,8 +883,9 @@ function handleSensorTwin(msg) {
   updateSensorList();
 
   // Ensure marker exists on map
-  if (map && map.loaded() && msg.lat && msg.lon && !sensorMarkers[sid]) {
+  if (map && msg.lat && msg.lon && !sensorMarkers[sid]) {
     addSensorMarker(sid, msg.lat, msg.lon);
+    fitMapToSensors();
   }
 }
 
@@ -1057,7 +939,7 @@ function renderAlerts() {
 
 function flyToAlert(lat, lon) {
   if (!map || !lat || !lon) return;
-  map.flyTo({ center: [lon, lat], zoom: 15, duration: 1200 });
+  map.flyTo([lat, lon], 15, { duration: 1.2 });
 }
 window.flyToAlert = flyToAlert;
 
@@ -1104,7 +986,7 @@ function updateSensorList() {
 
 function sensorRowClick(sensor_id, lat, lon) {
   if (map && lat && lon) {
-    map.flyTo({ center: [lon, lat], zoom: 15.5, duration: 900 });
+    map.flyTo([lat, lon], 15.5, { duration: 0.9 });
     showSensorPopup(sensor_id, lat, lon);
   }
 }

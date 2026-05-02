@@ -46,3 +46,16 @@ mlflow.{$OMNI_DOMAIN} {
         admin {$OMNI_MLFLOW_BASIC_HASH}
     }
 }
+
+# ── Ops Console (Streamlit) ──
+ops.{$OMNI_DOMAIN} {
+    reverse_proxy omni-platform:8501
+    encode gzip
+}
+
+# ── Web UI (static upload / analysis frontend) ──
+ui.{$OMNI_DOMAIN} {
+    root * /srv/web-ui
+    file_server
+    encode gzip
+}

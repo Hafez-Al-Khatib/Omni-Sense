@@ -184,19 +184,12 @@ services:
     image: eclipse-mosquitto:2.0
     ports:
       - "1883:1883"
-      - "8883:8883"
     volumes:
       - ./omni/configs:/mosquitto/config:rw
-      - ./certs:/mosquitto/certs:rw
       - mqtt-data:/mosquitto/data
     networks:
       - omni-net
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD-SHELL", "pgrep mosquitto || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
   # ── Platform v2 (EEP v2 + Intelligence + Action layer) ──
   omni-platform:
@@ -206,8 +199,9 @@ services:
     ports:
       - "8501:8501"      # Streamlit ops console
     environment:
+      - PYTHONPATH=/app
       - OMNI_MQTT_HOST=mqtt-broker
-      - OMNI_MQTT_PORT=8883
+      - OMNI_MQTT_PORT=1883
       - OMNI_MQTT_CA=/app/certs/ca.crt
       - OMNI_MQTT_CERT=/app/certs/gateway.crt
       - OMNI_MQTT_KEY=/app/certs/gateway.key

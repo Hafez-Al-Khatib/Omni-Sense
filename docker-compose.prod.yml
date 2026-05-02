@@ -18,6 +18,7 @@ services:
     env_file: .env.production
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./web-ui:/srv/web-ui:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:

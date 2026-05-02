@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Omni-Sense — Acoustic Diagnostics</title>
     <meta name="description" content="Cloud-native acoustic diagnostic platform for urban infrastructure leak detection.">
     <meta name="theme-color" content="#0a0e17">
@@ -169,6 +169,14 @@
                     <h3>Class Probabilities</h3>
                     <div id="probBars"></div>
                 </div>
+
+                <button class="submit-btn secondary" id="resetBtn" style="margin-top:12px;background:var(--surface-2);color:var(--text-secondary);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;">
+                        <path d="M1 4v6h6M23 20v-6h-6"/>
+                        <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
+                    </svg>
+                    New Sample
+                </button>
             </section>
 
             <!-- OOD Alert (hidden) -->
@@ -181,7 +189,17 @@
                     <span class="result-value" id="oodScore">—</span>
                 </div>
                 <button class="calibrate-btn" id="calibrateBtn">
-                    🔧 Calibrate to This Environment
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;vertical-align:middle;margin-right:4px;">
+                        <path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/>
+                    </svg>
+                    Calibrate to This Environment
+                </button>
+                <button class="submit-btn secondary" id="resetBtnOod" style="margin-top:12px;background:var(--surface-2);color:var(--text-secondary);">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:16px;height:16px;">
+                        <path d="M1 4v6h6M23 20v-6h-6"/>
+                        <path d="M20.49 9A9 9 0 005.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 013.51 15"/>
+                    </svg>
+                    New Sample
                 </button>
             </section>
 
