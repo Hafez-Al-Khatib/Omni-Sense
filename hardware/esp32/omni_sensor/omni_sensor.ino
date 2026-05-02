@@ -42,8 +42,8 @@
  * VCC      →  3.3 V
  * GND      →  GND
  * CS       →  GPIO 5
- * SDO/MISO →  GPIO 19
- * SDA/MOSI →  GPIO 23
+ * SDO/MISO →  GPIO 16
+ * SDA/MOSI →  GPIO 17
  * SCL/SCK  →  GPIO 18
  * INT1     →  not connected (polling mode)
  * INT2     →  not connected
@@ -68,8 +68,8 @@
 
 // ADXL345 SPI pins
 #define ADXL_CS_PIN       5
-#define ADXL_MISO_PIN     19
-#define ADXL_MOSI_PIN     23
+#define ADXL_MISO_PIN     16
+#define ADXL_MOSI_PIN     17
 #define ADXL_SCK_PIN      18
 #define ADXL_SPI_FREQ     4000000   // 4 MHz — well within 5 MHz single-byte limit
 
