@@ -192,9 +192,8 @@ services:
     networks:
       - omni-net
     restart: unless-stopped
-    user: "root"
     healthcheck:
-      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 1883 || exit 1"]
+      test: ["CMD-SHELL", "pgrep mosquitto || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
