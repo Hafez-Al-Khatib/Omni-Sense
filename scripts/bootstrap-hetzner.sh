@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Omni-Sense Hetzner CX22 Bootstrap
+# Omni-Sense Hetzner CX23 Bootstrap
 # ============================================================================
 # Run this script ON the Hetzner server after SSH login.
 #
@@ -167,7 +167,7 @@ if [ "$DEPLOY_MODE" = "ghcr" ]; then
     $COMPOSE_CMD up -d --no-build
 else
     echo ""
-    echo "[6/7] Building Docker images (~10-15 min on CX22)..."
+    echo "[6/7] Building Docker images (~10-15 min on CX23)..."
     $COMPOSE_CMD build --parallel
     echo ""
     echo "Starting services..."

@@ -1,6 +1,6 @@
 # Omni-Sense Deployment Guide
 
-> **Target:** Hetzner CX22 (4 GB / 2 vCPU / 40 GB SSD)  
+> **Target:** Hetzner CX23 (4 GB / 2 vCPU / 40 GB SSD)  
 > **Cost:** ~€4.51/month (~$5/month)  
 > **TLS:** Caddy + Let's Encrypt (auto-renewing)  
 > **Last updated:** 2026-05-02
@@ -82,7 +82,7 @@ Replace `<domain>` with your actual domain (e.g. `omnisense.duckdns.org`).
 1. Create a project `omni-sense-prod` in Hetzner Cloud.
 2. Add your SSH public key under **Security → SSH Keys**.
 3. Create a server:
-   - **Type:** CX22 (4 GB RAM / 2 vCPU / 40 GB SSD)
+   - **Type:** CX23 (4 GB RAM / 2 vCPU / 40 GB SSD)
    - **Image:** Ubuntu 24.04 LTS
    - **Location:** `nbg1` (Nuremberg) or any EU region
    - **SSH key:** select yours
@@ -240,7 +240,7 @@ PASS
 
 | Item | Monthly Cost | Notes |
 |---|---|---|
-| Hetzner CX22 | €4.51 (~$5) | 4 GB RAM, 2 vCPU, 40 GB SSD |
+| Hetzner CX23 | €4.59 (~$5) | 4 GB RAM, 2 vCPU, 40 GB SSD |
 | Caddy + Let's Encrypt | €0 | Open source, auto-renewing TLS |
 | DuckDNS | €0 | Free dynamic DNS |
 | **Total** | **~$5/mo** | |
@@ -298,7 +298,7 @@ Render is retained as a documented secondary path in `render.yaml` for teams who
 ### Full stack rebuild (new server)
 
 ```bash
-# 1. Provision new CX22, bootstrap (§5), DNS (§6)
+# 1. Provision new CX23, bootstrap (§5), DNS (§6)
 # 2. Clone repo, copy .env from backup
 su - omni
 cd /opt/omni-sense
@@ -339,7 +339,7 @@ Docker Compose only recreates containers whose images or configs changed. Health
 
 The repository already contains Kubernetes manifests under `k8s/` (Helm charts, ArgoCD, Istio canary). These are **not** the primary deployment path for this project because:
 
-- A single CX22 node cannot host a meaningful K8s control plane + workloads within 4 GB RAM.
+- A single CX23 node cannot host a meaningful K8s control plane + workloads within 4 GB RAM.
 - Docker Compose satisfies rubric §9 ("Kubernetes are required") by providing the declarative, version-controlled deployment spec; K8s manifests exist as an architecture artifact showing the path to multi-node scale-out.
 
 To deploy on K8s (e.g. Hetzner Cloud managed cluster or EKS/GKE):

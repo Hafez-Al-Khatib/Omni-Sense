@@ -6,11 +6,11 @@
 
 ---
 
-## 2026-05-02 — Cloud deployment target = Hetzner CX22 (decided by: claude-opus, user)
+## 2026-05-02 — Cloud deployment target = Hetzner CX23 (decided by: claude-opus, user)
 
 **Context:** Existing Render Blueprint deploys only the 4 FastAPI services. Prometheus/Grafana/MLflow/MQTT/Postgres stay local — fails rubric §11 live-observability requirement. User locked out of original Render account that owns the existing `*.onrender.com` URLs. Free-tier cold starts (30–60 s) violate rubric §8.1 ("if demo fails, grading stops").
 
-**Decision:** Deploy full `docker-compose.yml` on Hetzner CX22 (4 GB / 2 vCPU / 40 GB, ~€4.51/mo) behind Caddy reverse proxy with Let's Encrypt TLS. Public URLs for EEP, Grafana, Prometheus, MLflow.
+**Decision:** Deploy full `docker-compose.yml` on Hetzner CX23 (4 GB / 2 vCPU / 40 GB, ~€4.59/mo) behind Caddy reverse proxy with Let's Encrypt TLS. Public URLs for EEP, Grafana, Prometheus, MLflow.
 
 **Why not alternatives:**
 - Fresh Render free → still no live obs, still cold-start risk

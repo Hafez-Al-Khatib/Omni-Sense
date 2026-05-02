@@ -47,11 +47,11 @@ If you need to coordinate on any of these, write a request line in `coordination
 
 ## Concrete tasks (in order)
 
-### Task 1 — Provision Hetzner CX22
+### Task 1 — Provision Hetzner CX23
 
 - Hetzner Cloud account: https://console.hetzner.cloud/
 - Project: `omni-sense-prod`
-- Server type: **CX22** (4 GB / 2 vCPU / 40 GB SSD, ~€4.51/mo)
+- Server type: **CX23** (4 GB / 2 vCPU / 40 GB SSD, ~€4.59/mo)
 - Image: Ubuntu 24.04 LTS
 - Location: any EU (e.g., `nbg1` Nuremberg)
 - SSH key: upload user's pubkey
@@ -88,7 +88,7 @@ Create `Caddyfile` at repo root:
 
 ```caddy
 # Caddyfile — Omni-Sense production reverse proxy
-# Deployed on the Hetzner CX22; Caddy runs as a separate container in
+# Deployed on the Hetzner CX23; Caddy runs as a separate container in
 # docker-compose (add to docker-compose.prod.yml — see Task 5).
 
 eep.{$OMNI_DOMAIN} {

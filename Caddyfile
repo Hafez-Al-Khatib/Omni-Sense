@@ -1,5 +1,5 @@
 # Caddyfile — Omni-Sense production reverse proxy
-# Deployed on Hetzner CX22 behind Caddy with automatic Let's Encrypt TLS.
+# Deployed on Hetzner CX23 behind Caddy with automatic Let's Encrypt TLS.
 # Environment variables (set in .env.production):
 #   OMNI_DOMAIN           — e.g. omnisense.duckdns.org
 #   OMNI_PROM_BASIC_HASH  — caddy hash-password output for Prometheus

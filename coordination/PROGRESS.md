@@ -10,7 +10,7 @@
 
 | Task | Owner | Status | Notes |
 |---|---|---|---|
-| Hetzner CX22 deployment + Caddy + DEPLOYMENT.md | kimi | not started | See `coordination/handoffs/kimi-deployment-brief.md` |
+| Hetzner CX23 deployment + Caddy + DEPLOYMENT.md | kimi | not started | See `coordination/handoffs/kimi-deployment-brief.md` |
 | 3200 Hz retrain (deployment-rate parity) | claude-opus | starting | Touches: data, scripts, iep2/models |
 | ESP32-S3 C++ feature extractor + TFLite OOD | claude-opus | starting | Touches: hardware/esp32/, scripts/ |
 | Tradeoffs documentation (rubric §5) | claude-opus | pending | Will write after retrain numbers land |
@@ -37,7 +37,7 @@
 
 [2026-05-02 02:35] [claude-opus] Created coordination scaffold. Wrote brief for kimi at `coordination/handoffs/kimi-deployment-brief.md`. Starting 3200 Hz retrain plan in parallel.
 
-[2026-05-02 01:20] [kimi] Starting Task 1–9: Hetzner CX22 deployment + Caddy + DEPLOYMENT.md. Render is documented as secondary path. Will create all deployment artifacts; user provisions Hetzner server and points DNS.
+[2026-05-02 01:20] [kimi] Starting Task 1–9: Hetzner CX23 deployment + Caddy + DEPLOYMENT.md. Render is documented as secondary path. Will create all deployment artifacts; user provisions Hetzner server and points DNS.
 [2026-05-02 01:45] [kimi] Completed Tasks 4–8 — all deployment artifacts committed to main (b071f32):
   - Caddyfile (repo root) — TLS reverse proxy for eep/grafana/prometheus/mlflow
   - docker-compose.prod.yml — production overlay, removes host ports, adds Caddy container
@@ -45,7 +45,7 @@
   - test_public_url.py — retargeted to https://eep.<OMNI_DOMAIN>, added Grafana/Prometheus probes
   - DEPLOYMENT.md — grader-facing guide covering architecture, secrets, cost (~$5/mo), failure modes, DR
 [2026-05-02 01:50] [kimi] All 9 tasks ready for user execution. Remaining work requires user action:
-  1. Provision Hetzner CX22 + upload SSH key
+  1. Provision Hetzner CX23 + upload SSH key
   2. Point DNS A records to Hetzner IP
   3. SSH bootstrap (§5 in DEPLOYMENT.md)
   4. Fill .env with real passwords/hashes on the server

@@ -1,7 +1,7 @@
 # Hetzner CX22 Deployment Walkthrough
 
 > **Goal:** Go from zero to a publicly accessible Omni-Sense stack in ~20 minutes.
-> **Cost:** ~€4.51/month (CX22: 2 vCPU, 4 GB RAM, 40 GB NVMe).
+> **Cost:** ~€4.51/month (CX23: 2 vCPU, 4 GB RAM, 40 GB NVMe).
 > **Time budget:** 20 min if using GHCR, 35 min if building locally.
 
 ---
@@ -222,7 +222,7 @@ Port 8000 is intentionally NOT exposed in production. All traffic goes through C
 
 ### IEP4 container keeps restarting (OOM)
 
-The CNN model is memory-hungry. On CX22 with 4 GB, it can OOM if other services are also loading.
+The CNN model is memory-hungry. On CX23 with 4 GB, it can OOM if other services are also loading.
 
 Fix: Add swap space:
 ```bash
@@ -258,7 +258,7 @@ It will detect the existing clone and `git pull` instead of re-cloning.
 | Hetzner CX22 | €3.79 |
 | IPv4 address | €0.60 |
 | DuckDNS | €0.00 |
-| **Total** | **~€4.39** |
+| **Total** | **~€4.59** |
 
 After the demo: delete the server from the Hetzner console to stop billing. You can always recreate it with the same bootstrap script.
 
