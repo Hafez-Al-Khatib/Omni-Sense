@@ -41,7 +41,8 @@ services:
       - omni-net
     restart: unless-stopped
     depends_on:
-      - mqtt-broker
+      mqtt-broker:
+        condition: service_started
 
   # ── Internal Endpoint 4 (CNN Deep Classifier) ───────────
   iep4:
@@ -54,7 +55,7 @@ services:
       test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8004/health')" ]
       interval: 30s
       timeout: 10s
-      start_period: 20s  # CNN model load time
+      start_period: 20s
       retries: 3
     volumes:
       - iep4-models:/app/models
@@ -108,7 +109,7 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required — copy .env.example to .env}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       - GF_USERS_ALLOW_SIGN_UP=false
     volumes:
       - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
@@ -159,27 +160,20 @@ services:
     restart: unless-stopped
 
   # ── Jaeger (Distributed Tracing) ────────────────────────
-  # Industry pattern: Uber open-sourced Jaeger for ML pipeline tracing.
-  # We use OpenTelemetry-compatible Jaeger for end-to-end request flow.
   jaeger:
     image: jaegertracing/all-in-one:1.55
     ports:
-      - "16686:16686"   # Jaeger UI
-      - "14268:14268"   # Collector HTTP
-      - "4317:4317"     # OTLP gRPC (OpenTelemetry)
-      - "4318:4318"     # OTLP HTTP
+      - "16686:16686"
+      - "14268:14268"
+      - "4317:4317"
+      - "4318:4318"
     environment:
       - COLLECTOR_OTLP_ENABLED=true
     networks:
       - omni-net
     restart: unless-stopped
 
-  # ── MQTT Broker (Mosquitto: plain TCP + mTLS) ───────────
-  # Hardware integration:
-  #   - Port 1883 (plain TCP) is exposed for local lab / demo use.
-  #   - Port 8883 (mTLS) is for production ESP32 / RPi in the field.
-  #   - ESP32 connects to the host LAN IP (e.g. 192.168.1.100) on 8883.
-  #   - RPi agent can use localhost:1883 for testing or 8883 for production.
+  # ── MQTT Broker (plain TCP for demo stability) ──────────
   mqtt-broker:
     image: eclipse-mosquitto:2.0
     ports:
@@ -191,13 +185,13 @@ services:
       - omni-net
     restart: unless-stopped
 
-  # ── Platform v2 (EEP v2 + Intelligence + Action layer) ──
+  # ── Platform v2 (Streamlit Ops Console) ─────────────────
   omni-platform:
     build:
       context: .
       dockerfile: omni/Dockerfile
     ports:
-      - "8501:8501"      # Streamlit ops console
+      - "8501:8501"
     environment:
       - PYTHONPATH=/app
       - OMNI_MQTT_HOST=mqtt-broker
@@ -211,13 +205,13 @@ services:
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./certs:/app/certs:ro
-      - ./iep2/models:/app/iep2/models:ro     # read trained models for drift eval
-      - ./iep3:/app/iep3                       # read/write feedback_log.csv
-      - ./data:/app/data:ro                    # read golden dataset and synthesized data
-      - omni-data:/app/platform_data           # persistent platform state
+      - ./iep2/models:/app/iep2/models:ro
+      - ./iep3:/app/iep3
+      - ./data:/app/data:ro
+      - omni-data:/app/platform_data
     depends_on:
       mqtt-broker:
-        condition: service_healthy
+        condition: service_started
       timescaledb:
         condition: service_healthy
       redis:
@@ -231,14 +225,14 @@ services:
              --server.address=0.0.0.0
              --server.headless=true"
 
-  # ── TimescaleDB (time-series + relational persistence) ──
+  # ── TimescaleDB ─────────────────────────────────────────
   timescaledb:
     image: timescale/timescaledb:latest-pg16
     ports:
       - "5432:5432"
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-omni}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required — copy .env.example to .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       POSTGRES_DB: ${POSTGRES_DB:-omnisense}
     volumes:
       - timescale-data:/var/lib/postgresql/data
@@ -252,7 +246,7 @@ services:
       - omni-net
     restart: unless-stopped
 
-  # ── Redis (distributed event bus + cache) ────────────────
+  # ── Redis (cache + event bus) ───────────────────────────
   redis:
     image: redis:7.2-alpine
     ports:

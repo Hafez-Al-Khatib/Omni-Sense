@@ -1,24 +1,16 @@
 # Caddyfile — Omni-Sense production reverse proxy
-# Deployed on Hetzner CX23 behind Caddy with automatic Let's Encrypt TLS.
-# Environment variables (set in .env.production):
-#   OMNI_DOMAIN           — e.g. omnisense.duckdns.org
-#   OMNI_PROM_BASIC_HASH  — caddy hash-password output for Prometheus
-#   OMNI_MLFLOW_BASIC_HASH — caddy hash-password output for MLflow
+# Requires wildcard DNS: *.{$OMNI_DOMAIN} → 65.109.163.224
 #
-# Generate hashes:
+# Generate bcrypt hashes for basic_auth:
 #   docker run --rm caddy:2 caddy hash-password --plaintext '<pwd>'
 
 # ── EEP API Gateway ──
 eep.{$OMNI_DOMAIN} {
     reverse_proxy eep:8000
     encode gzip
-
-    # Allow audio uploads up to 10 MB (rubric §12 payload constraints)
     request_body {
         max_size 10MB
     }
-
-    # CORS preflight is handled by FastAPI; Caddy just passes through.
 }
 
 # ── Grafana Dashboards ──
@@ -32,7 +24,7 @@ prometheus.{$OMNI_DOMAIN} {
     reverse_proxy prometheus:9090
     encode gzip
 
-    basicauth {
+    basic_auth {
         admin {$OMNI_PROM_BASIC_HASH}
     }
 }
@@ -42,7 +34,7 @@ mlflow.{$OMNI_DOMAIN} {
     reverse_proxy mlflow:5000
     encode gzip
 
-    basicauth {
+    basic_auth {
         admin {$OMNI_MLFLOW_BASIC_HASH}
     }
 }

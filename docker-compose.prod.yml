@@ -6,7 +6,7 @@
 #   1. Adds Caddy as a TLS-terminating reverse proxy (Let's Encrypt)
 #   2. Removes host-port bindings from internal services (Caddy fronts them)
 #   3. Adds memory limits suitable for a 4 GB RAM CX23 instance
-#   4. Keeps MQTT 1883/8883 exposed directly for ESP32 / RPi hardware
+#   4. Keeps MQTT 1883 exposed directly for ESP32 / RPi hardware
 
 services:
   caddy:
@@ -28,6 +28,7 @@ services:
       - grafana
       - prometheus
       - mlflow
+      - omni-platform
     deploy:
       resources:
         limits:
