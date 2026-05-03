@@ -11,6 +11,7 @@ services:
       - OMNI_IEP3_URL=http://iep3:8003
       - OMNI_IEP4_URL=http://iep4:8004
       - OMNI_RATE_LIMIT=${OMNI_RATE_LIMIT:-5/minute}
+      - OMNI_CORS_ORIGINS=["https://ops.omni-sense.online","https://ui.omni-sense.online","http://localhost:3000","http://localhost:8501"]
     depends_on:
       iep2:
         condition: service_healthy
