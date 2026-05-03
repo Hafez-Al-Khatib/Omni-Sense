@@ -396,6 +396,17 @@ function decodeAccelFrame(b64Payload) {
     if (rmsEl) rmsEl.textContent = (rms / 16384).toFixed(4) + ' g';
     if (snrEl) snrEl.textContent = snr.toFixed(1) + ' dB';
     if (frmEl) frmEl.textContent = S.frames;
+
+    // Also update Diagnose Center real-time monitor stats
+    const diagRms = $('#diagRms');
+    const diagPeak = $('#diagPeak');
+    const diagKurt = $('#diagKurt');
+    if (diagRms) diagRms.textContent = (rms / 16384).toFixed(4) + ' g';
+    if (diagPeak) diagPeak.textContent = (peak / 16384).toFixed(4) + ' g';
+    // Simple excess kurtosis on the fly
+    const variance = samples.reduce((a, v) => a + (v - mean) ** 2, 0) / n;
+    const kurt = variance > 0 ? (samples.reduce((a, v) => a + (v - mean) ** 4, 0) / n) / (variance ** 2) - 3 : 0;
+    if (diagKurt) diagKurt.textContent = kurt.toFixed(2);
   } catch (e) {
     console.error('[accel] decode error:', e);
   }
@@ -561,6 +572,17 @@ async function processWav(file) {
     const t0 = performance.now();
     const resp = await fetch(CFG.eepUrl + '/api/v1/diagnose', { method: 'POST', body: form });
     const latency = Math.round(performance.now() - t0);
+
+    if (resp.status === 422) {
+      // OOD rejection — show honest message instead of cryptic error
+      if (vEl) { vEl.textContent = 'Out-of-Distribution'; vEl.className = 'verdict-value unknown'; }
+      const bars = $('#uploadProbBars');
+      if (bars) bars.innerHTML = '<div style="color:var(--fg-2);font-size:13px;padding:8px 0;">The uploaded sample does not match the acoustic signature of pressurized pipes. The model refuses to guess.</div>';
+      $('#uploadConf').textContent = 'N/A';
+      $('#uploadLatency').textContent = latency + ' ms';
+      return;
+    }
+
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
     const verdict = data.diagnosis?.label || data.label || 'UNKNOWN';
