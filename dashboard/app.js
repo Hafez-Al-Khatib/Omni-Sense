@@ -305,6 +305,39 @@ function updateDispatch(inf) {
   }
 }
 
+/* ── Decode base64 int16 LE accelerometer frame ── */
+function decodeAccelFrame(b64Payload) {
+  try {
+    const binary = atob(b64Payload);
+    const n = binary.length / 2;
+    const samples = new Int16Array(n);
+    const view = new DataView(new ArrayBuffer(2));
+    for (let i = 0; i < n; i++) {
+      view.setUint8(0, binary.charCodeAt(i * 2));
+      view.setUint8(1, binary.charCodeAt(i * 2 + 1));
+      samples[i] = view.getInt16(0, true); // little-endian
+    }
+    S.samples = Array.from(samples);
+    S.frames++;
+
+    // Update signal meta
+    const rms = Math.sqrt(samples.reduce((a, v) => a + v * v, 0) / n);
+    const mean = samples.reduce((a, v) => a + v, 0) / n;
+    const peak = Math.max(...samples.map(Math.abs));
+    const snr = 20 * Math.log10(peak / (rms + 1e-9));
+    S.lastRms = rms;
+
+    const rmsEl = $('#signalRms');
+    const snrEl = $('#signalSnr');
+    const frmEl = $('#signalFrames');
+    if (rmsEl) rmsEl.textContent = (rms / 16384).toFixed(4) + ' g';
+    if (snrEl) snrEl.textContent = snr.toFixed(1) + ' dB';
+    if (frmEl) frmEl.textContent = S.frames;
+  } catch (e) {
+    console.error('[accel] decode error:', e);
+  }
+}
+
 /* ── MQTT (bonus, not required) ── */
 function tryMQTT() {
   if(S.wsAttempted||typeof window.mqtt==='undefined')return;
@@ -314,7 +347,13 @@ function tryMQTT() {
     const client=window.mqtt.connect(CFG.mqttUrl,{keepalive:30,reconnectPeriod:8000,connectTimeout:12000,clean:true,clientId:'dash-'+Math.random().toString(36).slice(2,6)});
     S.client=client;
     client.on('connect',()=>{S.wsConnected=true;setMqttStatus('online','WS Live');client.subscribe(['sensors/+/accel','sensors/+/result']);});
-    client.on('message',(topic,payload)=>{if(topic.includes('/result')) ingestResult(JSON.parse(payload));});
+    client.on('message',(topic,payload)=>{
+      if(topic.includes('/result')){
+        ingestResult(JSON.parse(payload));
+      } else if(topic.includes('/accel')){
+        decodeAccelFrame(payload);
+      }
+    });
     client.on('error',()=>setMqttStatus('offline','WS Failed'));
     client.on('offline',()=>{S.wsConnected=false;setMqttStatus('offline','WS Off');});
   }catch(e){setMqttStatus('offline','WS Error');}
