@@ -6,6 +6,9 @@
 # Namespace to deploy into (created if it does not exist)
 namespace: omni-sense
 
+# Base domain for ingress routes (subdomains are prefixed per service)
+domain: omni-sense.lb
+
 # Global image settings
 image:
   registry: ghcr.io/omni-sense
@@ -167,6 +170,34 @@ iep4:
     initialDelaySeconds: 40
     periodSeconds: 20
 
+liveApi:
+  name: live-api
+  replicas: 1
+  image:
+    repository: live-api
+  port: 8080
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+  readinessProbe:
+    path: /health
+    port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 10
+  livenessProbe:
+    path: /health
+    port: 8080
+    initialDelaySeconds: 20
+    periodSeconds: 20
+  env:
+    DATABASE_URL: "postgresql://omnisense:changeme_strong_password@timescaledb:5432/omnisense"
+    MQTT_HOST: "mqtt-broker"
+    MQTT_PORT: "8883"
+
 # ── TimescaleDB ────────────────────────────────────────────────────────────────
 timescaledb:
   name: timescaledb
@@ -238,15 +269,16 @@ ingress:
     # Uncomment to enable TLS termination via cert-manager
     # cert-manager.io/cluster-issuer: letsencrypt-prod
   hosts:
-    api:
-      host: api.omni-sense.lb
+    eep:
+      path: /
+    liveApi:
       path: /
     console:
-      host: console.omni-sense.lb
       path: /
   tls: []
   # - secretName: omni-sense-tls
   #   hosts:
+  #     - eep.omni-sense.lb
   #     - api.omni-sense.lb
   #     - console.omni-sense.lb
 

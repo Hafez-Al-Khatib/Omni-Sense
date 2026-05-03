@@ -18,19 +18,30 @@ spec:
     {{- toYaml .Values.ingress.tls | nindent 4 }}
   {{- end }}
   rules:
-    # EEP REST API — used by field apps and external integrations
-    - host: {{ .Values.ingress.hosts.api.host }}
+    # EEP REST API Gateway — used by field apps and external integrations
+    - host: eep.{{ .Values.domain }}
       http:
         paths:
-          - path: {{ .Values.ingress.hosts.api.path }}
+          - path: {{ .Values.ingress.hosts.eep.path }}
             pathType: Prefix
             backend:
               service:
                 name: {{ .Values.eep.name }}
                 port:
                   name: http
+    # Live API — real-time inference & ticketing
+    - host: api.{{ .Values.domain }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.hosts.liveApi.path }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ .Values.liveApi.name }}
+                port:
+                  name: http
     # Ops Console (Streamlit) — internal operators
-    - host: {{ .Values.ingress.hosts.console.host }}
+    - host: console.{{ .Values.domain }}
       http:
         paths:
           - path: {{ .Values.ingress.hosts.console.path }}

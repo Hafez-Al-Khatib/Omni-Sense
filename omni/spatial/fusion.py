@@ -71,6 +71,7 @@ PIPE_SEGMENTS: list[PipeSegment] = [
         sensor_b_id   = "S-HAMRA-002",
         pipe_length_m = 120.0,
         pipe_material = "Cast_Iron",
+        temperature_c = 20.0,
         lat_a=33.8978, lon_a=35.4828,
         lat_b=33.8985, lon_b=35.4845,
     ),

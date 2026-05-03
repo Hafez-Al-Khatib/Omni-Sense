@@ -178,12 +178,58 @@ services:
     image: eclipse-mosquitto:2.0
     ports:
       - "1883:1883"
+      - "9001:9001"
     volumes:
       - ./omni/configs:/mosquitto/config:rw
       - mqtt-data:/mosquitto/data
     networks:
       - omni-net
     restart: unless-stopped
+
+  # ── MQTT Bridge (accelerometer → WAV → EEP inference) ───
+  mqtt-bridge:
+    build:
+      context: ./omni/edge/mqtt_bridge
+      dockerfile: Dockerfile
+    environment:
+      - OMNI_MQTT_HOST=mqtt-broker
+      - OMNI_MQTT_PORT=1883
+      - OMNI_EEP_URL=http://eep:8000
+      - BRIDGE_WINDOW_S=5.0
+      - TIMESCALE_DSN=postgresql://${POSTGRES_USER:-omni}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@timescaledb:5432/${POSTGRES_DB:-omnisense}
+    volumes:
+      - ./dashboard:/srv/dashboard:rw
+    depends_on:
+      - mqtt-broker
+      - eep
+    networks:
+      - omni-net
+    restart: unless-stopped
+
+  # ── Live API (real-time inference & ticketing API) ───────
+  live-api:
+    build:
+      context: ./live-api
+      dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=postgresql://omni:pg123456@timescaledb:5432/omnisense
+      - REDIS_URL=redis://redis:6379/0
+      - MQTT_HOST=mqtt-broker
+      - MQTT_PORT=1883
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mqtt-broker:
+        condition: service_started
+    networks:
+      - omni-net
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
   # ── Platform v2 (Streamlit Ops Console) ─────────────────
   omni-platform:

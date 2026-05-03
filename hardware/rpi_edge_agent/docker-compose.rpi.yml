@@ -1,0 +1,28 @@
+# Omni-Sense RPi Edge Agent — One-command deploy
+# Run on your Raspberry Pi:
+#   docker compose -f docker-compose.rpi.yml up -d
+#
+# This runs the edge agent in simulation mode, publishing diagnosis
+# results to your cloud MQTT broker at mqtt.omni-sense.online.
+
+services:
+  omni-edge:
+    build:
+      context: ../..
+      dockerfile: hardware/rpi_edge_agent/Dockerfile
+    environment:
+      - SENSOR_ID=S-RPI5-001
+      - SITE_ID=beirut/hamra
+      - MQTT_HOST=mqtt.omni-sense.online
+      - MQTT_PORT=1883
+      - SIMULATE_MODE=1
+      - OMNI_MODEL_PATH=/app/models
+    volumes:
+      - ../../iep2/models:/app/models:ro
+    restart: unless-stopped
+    networks:
+      - omni-edge-net
+
+networks:
+  omni-edge-net:
+    driver: bridge

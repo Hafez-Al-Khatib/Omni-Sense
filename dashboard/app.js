@@ -1,0 +1,401 @@
+// ── Omni-Sense Operations Console v2 ──
+// Polling-based with live-api backend. MQTT WebSocket as bonus.
+
+const CFG = {
+  apiUrl: (() => {
+    const h = location.hostname;
+    if (h === 'localhost' || h === '127.0.0.1') return 'http://localhost:8080';
+    const domain = h.includes('.') ? h.split('.').slice(1).join('.') : h;
+    return `https://api.${domain}`;
+  })(),
+  mqttUrl: (() => {
+    const h = location.hostname;
+    if (h === 'localhost' || h === '127.0.0.1') return 'ws://localhost:9001/mqtt';
+    const domain = h.includes('.') ? h.split('.').slice(1).join('.') : h;
+    return `wss://mqtt.${domain}/mqtt`;
+  })(),
+  eepUrl: (() => {
+    const h = location.hostname;
+    if (h === 'localhost' || h === '127.0.0.1') return 'http://localhost:8000';
+    const domain = h.includes('.') ? h.split('.').slice(1).join('.') : h;
+    return `https://eep.${domain}`;
+  })(),
+  pollInterval: 2000,
+  maxHistory: 100,
+};
+
+const S = {
+  client: null, wsConnected: false, wsAttempted: false,
+  frames: 0, samples: [], inferHist: [], ticketHist: [],
+  lastRms: 0, lastSnr: 0,
+  sensorMeta: { id:'esp32-s3-01', site:'demo-site', lat:33.8938, lng:35.5018 },
+};
+
+const $  = s => document.querySelector(s);
+const $$ = s => document.querySelectorAll(s);
+const fmtTime = ts => ts ? new Date(ts).toLocaleTimeString() : '--';
+const fmtDate = ts => ts ? new Date(ts).toLocaleString() : '--';
+const tagCls = v => v==='HEALTHY'?'ok': v==='LEAK'?'crit': v==='CRACK'?'warn':'unknown';
+
+/* ── UI helpers ── */
+function setMqttStatus(cls, text) {
+  const dot = $('#mqttDot'), txt = $('#mqttText');
+  if (dot) dot.className = 'status-dot ' + cls;
+  if (txt) txt.textContent = text;
+  const badge = $('#connModeBadge'), modeTxt = $('#connModeText'), proto = $('#connProto');
+  if (badge) {
+    badge.textContent = cls === 'online' ? 'ONLINE' : cls === 'connecting' ? 'CONNECTING' : 'OFFLINE';
+    badge.className = 'conn-mode-badge ' + (cls === 'online' ? (S.wsConnected ? 'mode-mqtt' : 'mode-polling') : cls === 'connecting' ? 'mode-polling' : 'mode-none');
+  }
+  if (modeTxt) modeTxt.textContent = text;
+  if (proto) proto.textContent = S.wsConnected ? 'MQTT WebSocket' : 'HTTP Polling';
+}
+function setBridgeStatus(cls, text) {
+  const dot = $('#bridgeDot'), txt = $('#bridgeText');
+  if (dot) dot.className = 'status-dot ' + cls;
+  if (txt) txt.textContent = text;
+}
+function toast(msg, type='info') {
+  const banner = $('#debugBanner'), txt = $('#debugText');
+  if (!banner || !txt) return;
+  banner.style.display = 'block';
+  banner.style.background = type==='error'?'#fee2e2': type==='ok'?'#dcfce7':'#e0f7fa';
+  banner.style.borderColor = type==='error'?'#fecaca': type==='ok'?'#bbf7d0':'#b2ebf2';
+  banner.style.color = type==='error'?'#991b1b': type==='ok'?'#166534':'#0e7490';
+  txt.textContent = msg;
+  setTimeout(() => { banner.style.display = 'none'; }, 5000);
+}
+
+/* ── Clock ── */
+setInterval(() => {
+  const d = new Date();
+  $('#clock').textContent = d.toISOString().slice(11,19) + ' UTC';
+}, 1000);
+
+/* ── Navigation ── */
+const PAGE_TITLES = {
+  ops: ['Operations Console', 'Live sensor mesh · leak detection · fleet health'],
+  sensor: ['Sensor Telemetry', 'Configuration · calibration · signal quality'],
+  diagnose: ['Diagnose Center', 'Manual analysis · real-time monitor · history'],
+  dispatch: ['Dispatch Console', 'Alerts · tickets · maintenance scheduling'],
+  mlops: ['MLOps Health', 'System metrics · model status · container fleet'],
+};
+$$('.nav-item').forEach(item => {
+  item.addEventListener('click', () => {
+    const target = item.dataset.screen;
+    $$('.nav-item').forEach(n => n.classList.remove('active'));
+    item.classList.add('active');
+    $$('.screen').forEach(s => s.classList.remove('active'));
+    $('#screen-' + target).classList.add('active');
+    const [t, st] = PAGE_TITLES[target] || PAGE_TITLES.ops;
+    $('#pageTitle').textContent = t;
+    $('#pageSubtitle').textContent = st;
+  });
+});
+
+/* ── Leaflet Map ── */
+const map = L.map('map', { zoomControl: false }).setView([33.8938, 35.5018], 14);
+L.control.zoom({ position: 'bottomright' }).addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+  subdomains: 'abcd', maxZoom: 19
+}).addTo(map);
+const sensorIcon = L.divIcon({
+  className: '',
+  html: `<div style="width:14px;height:14px;background:#0dc9d0;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 4px rgba(13,201,208,0.25);"></div>`,
+  iconSize: [14,14], iconAnchor: [7,7]
+});
+L.marker([33.8938, 35.5018], { icon: sensorIcon }).addTo(map)
+  .bindPopup(`<b>esp32-s3-01</b><br>demo-site<br><span style="color:#0dc9d0">&#9679; LIVE</span>`);
+
+/* ── Waveform Canvas ── */
+function drawWaveform(canvasId, samples, rms) {
+  const cvs = $(canvasId);
+  if (!cvs) return;
+  const w = cvs.width = cvs.clientWidth || cvs.width;
+  const h = cvs.height = cvs.clientHeight || cvs.height;
+  const ctx = cvs.getContext('2d');
+  ctx.fillStyle = '#0b1f2e'; ctx.fillRect(0,0,w,h);
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  for(let i=1;i<5;i++){ctx.beginPath();ctx.moveTo(0,(h/5)*i);ctx.lineTo(w,(h/5)*i);ctx.stroke();}
+  for(let i=1;i<8;i++){ctx.beginPath();ctx.moveTo((w/8)*i,0);ctx.lineTo((w/8)*i,h);ctx.stroke();}
+  if(!samples||samples.length<2){
+    ctx.fillStyle='rgba(255,255,255,0.3)';ctx.font='13px "IBM Plex Mono"';
+    ctx.fillText(S.wsConnected ? 'Waiting for accelerometer frames...' : 'Live waveform available via MQTT WebSocket',20,h/2);return;
+  }
+  const step=Math.max(1,Math.floor(samples.length/800));
+  const maxAmp=Math.max(1,...samples.map(Math.abs));
+  ctx.strokeStyle='rgba(13,201,208,0.3)';ctx.beginPath();ctx.moveTo(0,h/2);ctx.lineTo(w,h/2);ctx.stroke();
+  ctx.strokeStyle='#0dc9d0';ctx.lineWidth=1.5;ctx.beginPath();
+  for(let i=0,px=0;i<samples.length&&px<w;i+=step,px++){
+    const y=(h/2)-((samples[i]/maxAmp)*(h/2-4));
+    if(i===0)ctx.moveTo(px,y);else ctx.lineTo(px,y);
+  }
+  ctx.stroke();
+}
+
+/* ── Inference Rendering ── */
+function renderInference(inf) {
+  const vEl=$('#verdictValue');
+  if(vEl){vEl.textContent=inf.verdict||'--';vEl.className='verdict-value '+tagCls(inf.verdict);}
+  const tEl=$('#infTag');
+  if(tEl){tEl.textContent=inf.verdict||'--';tEl.className='tag '+tagCls(inf.verdict);}
+  const bars=$('#probBars');
+  if(bars){bars.innerHTML='';
+    const labels={HEALTHY:'Healthy',LEAK:'Leak',CRACK:'Crack',UNKNOWN:'Unknown'};
+    for(const[k,v]of Object.entries(inf.probs||{})){
+      const pct=Math.round((v||0)*100);
+      bars.insertAdjacentHTML('beforeend',`<div class="prob-row"><div class="prob-label">${labels[k]||k}</div><div class="prob-track"><div class="prob-fill ${tagCls(k)}" style="width:${pct}%"></div><span class="prob-val">${pct}%</span></div></div>`);
+    }
+  }
+  const cEl=$('#infConf');if(cEl)cEl.textContent=inf.confidence?((inf.confidence*100).toFixed(1)+'%'):'--';
+  const lEl=$('#infLatency');if(lEl)lEl.textContent=inf.latency_ms?Math.round(inf.latency_ms):'--';
+  const tmEl=$('#infTime');if(tmEl)tmEl.textContent=fmtTime(inf.ts||inf.timestamp);
+
+  const alertPill=$('#kpiAlertPill'),alertVal=$('#kpiAlerts');
+  const alerts=S.inferHist.filter(x=>x.verdict!=='HEALTHY').length;
+  if(alertPill&&alertVal){if(alerts>0){alertPill.style.display='flex';alertVal.textContent=alerts;}else{alertPill.style.display='none';}}
+
+  updateSensorQuality(inf.features);
+  updateHistoryTables();
+  updateDispatch(inf);
+}
+
+function updateSensorQuality(f) {
+  if(!f)return;
+  const set=(id,val)=>{const el=$(id);if(el)el.textContent=val;};
+  set('#sqMean',f.mean!==undefined?f.mean.toFixed(4)+' g':'--');
+  set('#sqRms',f.rms!==undefined?f.rms.toFixed(4)+' g':'--');
+  set('#sqPeak',f.peak!==undefined?f.peak.toFixed(4)+' g':'--');
+  set('#sqKurt',f.kurtosis!==undefined?f.kurtosis.toFixed(2):'--');
+  set('#sqCrest',f.crest_factor!==undefined?f.crest_factor.toFixed(2):'--');
+  set('#sqSpec',f.spectral_ratio!==undefined?f.spectral_ratio.toFixed(3):'--');
+  set('#sqZcr',f.zcr!==undefined?f.zcr.toFixed(4):'--');
+  set('#sqSnr',f.snr!==undefined?f.snr.toFixed(1)+' dB':'--');
+  const tEl=$('#sigQualTag');
+  if(tEl&&f.rms!==undefined){const ok=f.rms<0.15&&f.kurtosis<5;tEl.textContent=ok?'GOOD':'DEGRADED';tEl.className='tag '+(ok?'ok':'warn');}
+}
+
+function updateHistoryTables() {
+  const tb=$('#historyTableBody');
+  if(tb&&S.inferHist.length>0){
+    tb.innerHTML=S.inferHist.slice(0,20).map(inf=>{
+      const f=inf.features||{};
+      return `<tr><td>${fmtTime(inf.ts)}</td><td>${inf.source||'vibration'}</td><td class="v-${inf.verdict}">${inf.verdict}</td><td>${((inf.confidence||0)*100).toFixed(1)}%</td><td>${Math.round(inf.latency_ms||0)} ms</td><td>RMS:${(f.rms||0).toFixed(3)} K:${(f.kurtosis||0).toFixed(1)}</td></tr>`;
+    }).join('');
+  }
+}
+
+function updateDispatch(inf) {
+  if(!inf||inf.verdict==='HEALTHY')return;
+  const panel=$('#alertsPanel');
+  const countTag=$('#alertCountTag');
+  const alerts=S.inferHist.filter(x=>x.verdict!=='HEALTHY');
+  if(countTag){countTag.textContent=alerts.length+' OPEN';countTag.className='tag '+(alerts.length?'crit':'ok');}
+  if(panel){
+    if(alerts.length===0){
+      panel.innerHTML=`<div class="alert-card"><div class="alert-icon ok">&#10003;</div><div class="alert-body"><div class="alert-title">All Clear</div><div class="alert-desc">No active alerts. System operating normally.</div></div></div>`;
+    }else{
+      panel.innerHTML=alerts.slice(0,5).map(a=>`<div class="alert-card"><div class="alert-icon ${tagCls(a.verdict)}">!</div><div class="alert-body"><div class="alert-title">${a.verdict} detected on ${a.sensor_id}</div><div class="alert-desc">Confidence ${((a.confidence||0)*100).toFixed(1)}% at ${fmtTime(a.ts)}</div></div></div>`).join('');
+    }
+  }
+  ['#btnDispatch','#btnSilence','#btnAck'].forEach(id=>{const b=$(id);if(b)b.disabled=alerts.length===0;});
+  const atb=$('#alertTableBody');
+  if(atb&&alerts.length>0){
+    atb.innerHTML=alerts.slice(0,20).map(a=>`<tr><td>${fmtTime(a.ts)}</td><td>${a.sensor_id}</td><td class="v-${a.verdict}">${a.verdict==='LEAK'?'CRITICAL':'WARNING'}</td><td class="v-${a.verdict}">${a.verdict}</td><td>${((a.confidence||0)*100).toFixed(1)}%</td><td><span class="tag crit">OPEN</span></td><td>--</td></tr>`).join('');
+  }
+}
+
+/* ── MQTT (bonus, not required) ── */
+function tryMQTT() {
+  if(S.wsAttempted||typeof window.mqtt==='undefined')return;
+  S.wsAttempted=true;
+  setMqttStatus('connecting','Trying WS...');
+  try{
+    const client=window.mqtt.connect(CFG.mqttUrl,{keepalive:30,reconnectPeriod:8000,connectTimeout:12000,clean:true,clientId:'dash-'+Math.random().toString(36).slice(2,6)});
+    S.client=client;
+    client.on('connect',()=>{S.wsConnected=true;setMqttStatus('online','WS Live');client.subscribe(['sensors/+/accel','sensors/+/result']);});
+    client.on('message',(topic,payload)=>{if(topic.includes('/result')) ingestResult(JSON.parse(payload));});
+    client.on('error',()=>setMqttStatus('offline','WS Failed'));
+    client.on('offline',()=>{S.wsConnected=false;setMqttStatus('offline','WS Off');});
+  }catch(e){setMqttStatus('offline','WS Error');}
+}
+
+/* ── HTTP Polling (primary data source) ── */
+async function api(path, opts={}) {
+  const url = CFG.apiUrl + path;
+  try {
+    const resp = await fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', ...opts.headers } });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    return await resp.json();
+  } catch (e) {
+    console.error('[api] ' + path + ':', e.message);
+    throw e;
+  }
+}
+
+function ingestResult(data) {
+  if (!data || !data.verdict) return;
+  const inf = { ts: data.ts || Date.now(), verdict: data.verdict, probs: data.probs || {}, confidence: data.confidence || 0, latency_ms: data.latency_ms || 0, features: data.features || {}, sensor_id: data.sensor_id || 'unknown', source: data.source || 'vibration' };
+  S.inferHist.unshift(inf);
+  if (S.inferHist.length > CFG.maxHistory) S.inferHist.pop();
+  renderInference(inf);
+  setBridgeStatus('online', 'Active');
+  const cnt = $('#infCount'); if (cnt) cnt.textContent = S.inferHist.length;
+  const avg = S.inferHist.reduce((a, b) => a + (b.latency_ms || 0), 0) / S.inferHist.length;
+  const avgEl = $('#avgLatency'); if (avgEl) avgEl.textContent = Math.round(avg) + ' ms';
+}
+
+async function pollLive() {
+  try {
+    const data = await api('/live');
+    if (data) {
+      if (data.verdict && data.verdict !== 'WAITING') {
+        ingestResult(data);
+      }
+      if (!S.wsConnected) setMqttStatus('online', 'Polling');
+    }
+  } catch (e) { /* silent on poll errors */ }
+}
+
+async function pollMetrics() {
+  try {
+    const m = await api('/metrics');
+    const cnt = $('#infCount'); if (cnt) cnt.textContent = m.total_inferences || 0;
+    const avgEl = $('#avgLatency'); if (avgEl) avgEl.textContent = Math.round(m.avg_latency_ms || 0) + ' ms';
+    const ood = $('#oodRate'); if (ood) ood.textContent = m.alert_count ? ((m.alert_count / (m.total_inferences || 1)) * 100).toFixed(1) + '%' : '0.0%';
+  } catch (e) { }
+}
+
+async function loadTickets() {
+  try {
+    const tickets = await api('/tickets');
+    S.ticketHist = tickets;
+    const atb = $('#alertTableBody');
+    if (atb && tickets.length > 0) {
+      atb.innerHTML = tickets.map(t => `<tr><td>${fmtDate(t.created_at)}</td><td>${t.sensor_id}</td><td class="v-${t.verdict}">${t.severity}</td><td class="v-${t.verdict}">${t.verdict}</td><td>${((t.confidence || 0) * 100).toFixed(1)}%</td><td><span class="tag ${t.status === 'OPEN' ? 'crit' : 'ok'}">${t.status}</span></td><td>${t.false_alarm ? 'False Alarm' : (t.resolution || '--')}</td></tr>`).join('');
+    }
+    const openCount = tickets.filter(t => t.status === 'OPEN').length;
+    const countTag = $('#alertCountTag');
+    if (countTag) { countTag.textContent = openCount + ' OPEN'; countTag.className = 'tag ' + (openCount ? 'crit' : 'ok'); }
+  } catch (e) { }
+}
+
+/* ── Dispatch Actions ── */
+$('#btnDispatch').addEventListener('click', async () => {
+  const inf = S.inferHist[0];
+  if (!inf) return;
+  try {
+    const res = await api('/tickets', {
+      method: 'POST', body: JSON.stringify({
+        sensor_id: inf.sensor_id, verdict: inf.verdict, confidence: inf.confidence,
+        severity: inf.verdict === 'LEAK' ? 'CRITICAL' : 'WARNING', notes: 'Dispatched from dashboard'
+      })
+    });
+    toast('Ticket ' + res.ticket_id.slice(0, 8) + ' created', 'ok');
+    loadTickets();
+  } catch (e) { toast('Failed to create ticket: ' + e.message, 'error'); }
+});
+
+$('#btnSilence').addEventListener('click', async () => {
+  toast('Alert silenced for 30 min', 'ok');
+});
+
+$('#btnAck').addEventListener('click', async () => {
+  toast('Alert acknowledged', 'ok');
+});
+
+/* ── False Alarm Report ── */
+async function reportFalseAlarm(correctVerdict) {
+  const inf = S.inferHist[0];
+  if (!inf) return;
+  try {
+    await api('/feedback', {
+      method: 'POST', body: JSON.stringify({
+        sensor_id: inf.sensor_id, verdict: inf.verdict, confidence: inf.confidence,
+        false_alarm: true, correct_verdict: correctVerdict, notes: 'Reported from dashboard'
+      })
+    });
+    toast('False alarm recorded for continuous learning', 'ok');
+  } catch (e) { toast('Failed to record feedback: ' + e.message, 'error'); }
+}
+
+/* ── Data Export ── */
+$('#exportBtn')?.addEventListener('click', () => {
+  window.open(CFG.apiUrl + '/export/csv', '_blank');
+});
+
+/* ── Upload Diagnosis ── */
+const uploadZone = $('#uploadZone'), wavInput = $('#wavInput');
+if (uploadZone && wavInput) {
+  uploadZone.addEventListener('click', () => wavInput.click());
+  uploadZone.addEventListener('dragover', e => { e.preventDefault(); uploadZone.classList.add('dragover'); });
+  uploadZone.addEventListener('dragleave', () => uploadZone.classList.remove('dragover'));
+  uploadZone.addEventListener('drop', e => { e.preventDefault(); uploadZone.classList.remove('dragover'); const f = e.dataTransfer.files[0]; if (f) processWav(f); });
+  wavInput.addEventListener('change', e => { const f = e.target.files[0]; if (f) processWav(f); });
+}
+
+async function processWav(file) {
+  const resDiv = $('#uploadResult');
+  if (resDiv) resDiv.style.display = 'block';
+  const vEl = $('#uploadVerdictValue');
+  if (vEl) { vEl.textContent = 'Analyzing...'; vEl.className = 'verdict-value'; }
+  try {
+    const form = new FormData();
+    form.append('audio', file);
+    form.append('metadata', JSON.stringify({ pipe_material: 'PVC', pressure_bar: 3.0, source: 'manual_upload' }));
+    const t0 = performance.now();
+    const resp = await fetch(CFG.eepUrl + '/api/v1/diagnose', { method: 'POST', body: form });
+    const latency = Math.round(performance.now() - t0);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    const verdict = data.diagnosis?.label || data.label || 'UNKNOWN';
+    const probs = data.diagnosis?.probabilities || data.probabilities || {};
+    const conf = data.diagnosis?.confidence || data.confidence || 0;
+    if (vEl) { vEl.textContent = verdict; vEl.className = 'verdict-value ' + tagCls(verdict); }
+    const bars = $('#uploadProbBars');
+    if (bars) {
+      bars.innerHTML = '';
+      const labels = { HEALTHY: 'Healthy', LEAK: 'Leak', CRACK: 'Crack', UNKNOWN: 'Unknown' };
+      for (const [k, v] of Object.entries(probs)) { const pct = Math.round((v || 0) * 100); bars.insertAdjacentHTML('beforeend', `<div class="prob-row"><div class="prob-label">${labels[k] || k}</div><div class="prob-track"><div class="prob-fill ${tagCls(k)}" style="width:${pct}%"></div><span class="prob-val">${pct}%</span></div></div>`); }
+    }
+    $('#uploadConf').textContent = (conf * 100).toFixed(1) + '%';
+    $('#uploadLatency').textContent = latency + ' ms';
+  } catch (e) {
+    if (vEl) { vEl.textContent = 'Error: ' + e.message; vEl.className = 'verdict-value crit'; }
+  }
+}
+
+/* ── System Health Polling ── */
+async function pollHealth() {
+  try {
+    const resp = await fetch(CFG.eepUrl + '/health', { method: 'GET', cache: 'no-store' });
+    const eepTag = $('#eepHealth');
+    if (eepTag) { eepTag.textContent = resp.ok ? 'HEALTHY' : 'DEGRADED'; eepTag.className = 'tag ' + (resp.ok ? 'ok' : 'crit'); }
+  } catch (e) {
+    const eepTag = $('#eepHealth');
+    if (eepTag) { eepTag.textContent = 'DOWN'; eepTag.className = 'tag crit'; }
+  }
+}
+
+function populateConnUrls() {
+  const mqtt = $('#connMqtt'), poll = $('#connPoll'), api = $('#connApi');
+  if (mqtt) mqtt.textContent = CFG.mqttUrl;
+  if (poll) poll.textContent = CFG.apiUrl + '/live';
+  if (api) api.textContent = CFG.apiUrl;
+}
+
+/* ── Init ── */
+tryMQTT();
+setInterval(pollLive, CFG.pollInterval);
+setInterval(pollMetrics, 10000);
+setInterval(loadTickets, 15000);
+setInterval(pollHealth, 30000);
+pollLive(); pollMetrics(); loadTickets(); pollHealth();
+populateConnUrls();
+
+drawWaveform('#waveformCanvas', [], 0);
+drawWaveform('#diagWaveformCanvas', [], 0);
+setInterval(() => { drawWaveform('#waveformCanvas', S.samples, S.lastRms); drawWaveform('#diagWaveformCanvas', S.samples, S.lastRms); }, 250);
+
+toast('Dashboard v2 loaded. Data source: HTTP polling.', 'ok');

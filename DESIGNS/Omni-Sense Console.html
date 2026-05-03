@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Omni-Sense — Acoustic Leak Intelligence Console</title>
+<link rel="stylesheet" href="styles.css" />
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="shared.jsx"></script>
+<script type="text/babel" src="screen-ops.jsx"></script>
+<script type="text/babel" src="screen-diagnosis.jsx"></script>
+<script type="text/babel" src="screen-tdoa.jsx"></script>
+<script type="text/babel" src="screen-field.jsx"></script>
+<script type="text/babel" src="screen-mlops.jsx"></script>
+<script type="text/babel" src="screen-sensor.jsx"></script>
+<script type="text/babel" src="screen-breakai.jsx"></script>
+
+<style>
+  /* Tweakable theme overrides applied at root via CSS vars */
+  body[data-theme="amber"] { --signal: oklch(0.80 0.14 75); --signal-soft: oklch(0.80 0.14 75 / 0.16); }
+  body[data-theme="violet"] { --signal: oklch(0.70 0.13 295); --signal-soft: oklch(0.70 0.13 295 / 0.16); }
+  body[data-theme="green"]  { --signal: oklch(0.74 0.13 155); --signal-soft: oklch(0.74 0.13 155 / 0.16); }
+  body[data-density="dense"] .panel-h { padding: 6px 10px !important; }
+  body[data-density="dense"] .panel-b { padding: 8px 10px !important; }
+</style>
+</head>
+<body data-screen-label="Omni-Sense Design Canvas">
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "theme": "cyan",
+  "density": "comfortable",
+  "showGridBg": true,
+  "tickerSpeed": 1
+}/*EDITMODE-END*/;
+
+function App() {
+  const [tweaks, setTweak] = useTweaks(TWEAK_DEFAULTS);
+
+  React.useEffect(() => {
+    document.body.dataset.theme = tweaks.theme;
+    document.body.dataset.density = tweaks.density;
+  }, [tweaks.theme, tweaks.density]);
+
+  return (
+    <React.Fragment>
+      <DesignCanvas>
+        <DCSection
+          id="ops"
+          title="01 · Operations Console"
+          subtitle="Beirut zones · live alert queue · fleet KPIs · audit ticker"
+        >
+          <DCArtboard id="ops-console" label="A · Ops Console — full layout" width={1440} height={900}>
+            <OpsConsole />
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="diagnosis"
+          title="02 · Live Diagnosis"
+          subtitle="WO-26041 · 5-head ensemble vote · SHAP attribution · OOD gate"
+        >
+          <DCArtboard id="diagnosis" label="B · WO-26041 deep dive" width={1440} height={900}>
+            <LiveDiagnosis />
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="tdoa"
+          title="03 · TDOA Spatial Fusion"
+          subtitle="Multi-sensor leak triangulation · hyperbolic isochrones → ±meter ellipse on PostGIS pipe geometry"
+        >
+          <DCArtboard id="tdoa" label="C · Where, exactly?" width={1440} height={900}>
+            <TdoaFusion />
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="field"
+          title="04 · Field Crew"
+          subtitle="iOS · technician gets the ticket, navigates, confirms — closes the active-learning loop"
+        >
+          <DCArtboard id="field-app" label="D · Mobile · ticket + queue" width={460} height={840}>
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', background: 'oklch(0.10 0.012 240)' }}>
+              <FieldCrewApp />
+            </div>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="mlops"
+          title="05 · MLOps Health"
+          subtitle="Drift · OOD rejections · regression gate · WORM Merkle audit chain"
+        >
+          <DCArtboard id="mlops" label="E · Model trust dashboard" width={1440} height={900}>
+            <MlopsHealth />
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="sensor"
+          title="06 · Edge Device Detail"
+          subtitle="Drilldown on S-HAMRA-001 · firmware · mTLS · power · pipeline"
+        >
+          <DCArtboard id="sensor" label="F · Sensor S-HAMRA-001" width={1440} height={820}>
+            <SensorDetail />
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection
+          id="demo"
+          title="07 · Break · My · AI"
+          subtitle="Live HIL demo · judges try to spoof the system · OOD gate fires 422 instead of false-leaking"
+        >
+          <DCArtboard id="break-ai" label="G · Poster-session showpiece" width={1600} height={920}>
+            <BreakMyAi />
+          </DCArtboard>
+        </DCSection>
+
+        <DCPostIt x={40} y={40} color="amber">
+          <strong>Omni-Sense · Acoustic Leak Intelligence</strong><br/>
+          Pi 4 + ADXL345 piezo · MQTT/mTLS · 5-head fusion (XGB · RF · CNN · Iso.Forest · CNN-AE OOD) ·
+          F1 0.9879 · ROC-AUC 0.9907.<br/><br/>
+          <em>7 screens. Click any artboard to focus. Toggle the Tweaks panel for theme / density.</em>
+        </DCPostIt>
+      </DesignCanvas>
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection title="Theme">
+          <TweakRadio
+            label="Accent"
+            value={tweaks.theme}
+            onChange={(v) => setTweak('theme', v)}
+            options={[
+              { value: 'cyan',   label: 'Cyan' },
+              { value: 'amber',  label: 'Amber' },
+              { value: 'green',  label: 'Green' },
+              { value: 'violet', label: 'Violet' },
+            ]}
+          />
+          <TweakRadio
+            label="Density"
+            value={tweaks.density}
+            onChange={(v) => setTweak('density', v)}
+            options={[
+              { value: 'comfortable', label: 'Comfortable' },
+              { value: 'dense',       label: 'Dense' },
+            ]}
+          />
+        </TweakSection>
+      </TweaksPanel>
+    </React.Fragment>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

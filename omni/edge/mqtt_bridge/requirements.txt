@@ -1,0 +1,4 @@
+numpy>=1.24.0
+paho-mqtt>=1.6.0
+requests>=2.31.0
+psycopg2-binary>=2.9.0

@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.liveApi.name }}
+  namespace: {{ include "omni-sense.namespace" . }}
+  labels:
+    {{- include "omni-sense.componentLabels" (dict "component" .Values.liveApi.name "context" .) | nindent 4 }}
+spec:
+  replicas: {{ .Values.liveApi.replicas }}
+  selector:
+    matchLabels:
+      {{- include "omni-sense.selectorLabels" (dict "component" .Values.liveApi.name "context" .) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "omni-sense.componentLabels" (dict "component" .Values.liveApi.name "context" .) | nindent 8 }}
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: {{ .Values.liveApi.name }}
+          image: {{ include "omni-sense.image" (dict "repository" .Values.liveApi.image.repository "context" .) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.liveApi.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: omni-sense-config
+          env:
+            {{- range $key, $val := .Values.liveApi.env }}
+            - name: {{ $key }}
+              value: {{ $val | quote }}
+            {{- end }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.liveApi.readinessProbe.path }}
+              port: {{ .Values.liveApi.readinessProbe.port }}
+            initialDelaySeconds: {{ .Values.liveApi.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.liveApi.readinessProbe.periodSeconds }}
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.liveApi.livenessProbe.path }}
+              port: {{ .Values.liveApi.livenessProbe.port }}
+            initialDelaySeconds: {{ .Values.liveApi.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.liveApi.livenessProbe.periodSeconds }}
+            failureThreshold: 5
+          resources:
+            {{- toYaml .Values.liveApi.resources | nindent 12 }}
+      restartPolicy: Always

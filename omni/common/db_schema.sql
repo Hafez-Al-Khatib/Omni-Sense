@@ -269,3 +269,72 @@ CREATE INDEX IF NOT EXISTS idx_leak_hypotheses_pipe_segment
 
 CREATE INDEX IF NOT EXISTS idx_leak_hypotheses_confidence
     ON leak_hypotheses (confidence DESC, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- inference_results  — hypertable for vibration-analysis inference results
+-- (populated by omni/edge/mqtt_bridge/bridge.py)
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS inference_results (
+    captured_at             TIMESTAMPTZ NOT NULL,
+    sensor_id               TEXT        NOT NULL,
+    verdict                 TEXT        NOT NULL,
+    confidence              DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    latency_ms              DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    features                JSONB       NOT NULL DEFAULT '{}',
+    source                  TEXT        NOT NULL DEFAULT 'vibration_analysis'
+);
+
+SELECT create_hypertable(
+    'inference_results',
+    'captured_at',
+    chunk_time_interval => INTERVAL '1 hour',
+    if_not_exists       => TRUE
+);
+
+CREATE INDEX IF NOT EXISTS idx_inference_results_sensor_time
+    ON inference_results (sensor_id, captured_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- tickets  — support / maintenance tickets
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS tickets (
+    ticket_id               UUID        PRIMARY KEY,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    sensor_id               TEXT        NOT NULL,
+    title                   TEXT        NOT NULL DEFAULT '',
+    description             TEXT        NOT NULL DEFAULT '',
+    status                  TEXT        NOT NULL DEFAULT 'OPEN',
+    priority                TEXT        NOT NULL DEFAULT 'MEDIUM',
+    assigned_to             TEXT,
+    resolved_at             TIMESTAMPTZ
+);
+
+CREATE INDEX IF NOT EXISTS idx_tickets_sensor_id
+    ON tickets (sensor_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_tickets_status
+    ON tickets (status, created_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- feedback  — user feedback on inference results or alerts
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS feedback (
+    feedback_id             UUID        PRIMARY KEY,
+    created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    sensor_id               TEXT        NOT NULL,
+    related_detection_id    UUID,
+    rating                  INTEGER     CHECK (rating >= 1 AND rating <= 5),
+    comment                 TEXT        NOT NULL DEFAULT '',
+    category                TEXT        NOT NULL DEFAULT 'GENERAL'
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_sensor_id
+    ON feedback (sensor_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_detection_id
+    ON feedback (related_detection_id)
+    WHERE related_detection_id IS NOT NULL;

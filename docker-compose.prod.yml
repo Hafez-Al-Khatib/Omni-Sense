@@ -19,6 +19,7 @@ services:
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./web-ui:/srv/web-ui:ro
+      - ./dashboard:/srv/dashboard:ro
       - caddy_data:/data
       - caddy_config:/config
     networks:
@@ -29,6 +30,7 @@ services:
       - prometheus
       - mlflow
       - omni-platform
+      - live-api
     deploy:
       resources:
         limits:
@@ -95,6 +97,13 @@ services:
 
   # MQTT stays exposed on host ports for hardware integration
   # (ESP32 / RPi connect directly, not through Caddy)
+
+  live-api:
+    ports: !reset []
+    deploy:
+      resources:
+        limits:
+          memory: 256M
 
 volumes:
   caddy_data:

@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Omni-Sense · Operations Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Orbitron:wght@400;700;800&family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="mqtt.min.js"></script>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app-shell">
+  <nav class="nav-rail">
+    <div class="nav-brand">
+      <div class="nav-brand-title">OMNI</div>
+      <div class="nav-brand-sub">ACOUSTIC INTELLIGENCE</div>
+    </div>
+    <div class="nav-section-label">Operations</div>
+    <div class="nav-item active" data-screen="ops"><span class="nav-item-num">01</span><span>Console</span></div>
+    <div class="nav-item" data-screen="sensor"><span class="nav-item-num">02</span><span>Sensor</span></div>
+    <div class="nav-item" data-screen="diagnose"><span class="nav-item-num">03</span><span>Diagnose</span></div>
+    <div class="nav-item" data-screen="dispatch"><span class="nav-item-num">04</span><span>Dispatch</span></div>
+    <div class="nav-section-label">System</div>
+    <div class="nav-item" data-screen="mlops"><span class="nav-item-num">05</span><span>MLOps</span></div>
+    <div class="nav-status-row">
+      <div>MQTT: <span class="status-dot connecting" id="mqttDot"></span> <span id="mqttText">Connecting...</span></div>
+      <div>Bridge: <span class="status-dot unknown" id="bridgeDot"></span> <span id="bridgeText">--</span></div>
+    </div>
+  </nav>
+
+  <main class="stage">
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="page-title" id="pageTitle">Operations Console</h1>
+        <span class="page-subtitle" id="pageSubtitle">Live sensor mesh · leak detection · fleet health</span>
+      </div>
+      <div class="topbar-right">
+        <div class="kpi-pill"><span class="kpi-label">SENSORS</span><span class="kpi-value" id="kpiSensors">1</span><span class="kpi-unit">/1 ONLINE</span></div>
+        <div class="kpi-pill critical" id="kpiAlertPill" style="display:none"><span class="kpi-label">ALERT</span><span class="kpi-value" id="kpiAlerts">0</span></div>
+        <div class="clock" id="clock">--:--:-- UTC</div>
+      </div>
+    </header>
+    <div id="debugBanner" style="display:none;background:#fee2e2;border-bottom:1px solid #fecaca;padding:8px 28px;font-size:12px;font-family:IBM Plex Mono;color:#991b1b;">
+      <b>DEBUG:</b> <span id="debugText">--</span>
+    </div>
+
+    <!-- ===== OPS CONSOLE ===== -->
+    <section class="screen active" id="screen-ops">
+      <div class="ops-grid">
+        <div class="panel map-panel">
+          <div class="panel-h"><span class="panel-title">Sensor Mesh &amp; Leak Hypotheses</span><span class="tag ok" id="mapStatusTag">LIVE</span></div>
+          <div class="panel-b" style="padding:0;overflow:hidden;"><div id="map"></div></div>
+        </div>
+        <div class="ops-right">
+          <div class="panel">
+            <div class="panel-h"><span class="panel-title">Live Accelerometer Signal</span><span class="tag" id="signalRateTag">3200 Hz</span></div>
+            <div class="panel-b">
+              <canvas id="waveformCanvas" width="340" height="120"></canvas>
+              <div class="signal-meta"><span>RMS: <b id="signalRms">--</b></span><span>SNR: <b id="signalSnr">--</b> dB</span><span>Frames: <b id="signalFrames">0</b></span></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-h"><span class="panel-title">Latest Inference</span><span class="tag" id="infTag">--</span></div>
+            <div class="panel-b">
+              <div class="verdict-row" id="verdictRow"><span class="verdict-label">Status</span><span class="verdict-value" id="verdictValue">Waiting for data...</span></div>
+              <div class="prob-bars" id="probBars"></div>
+              <div class="inf-meta"><span>Confidence: <b id="infConf">--</b></span><span>Latency: <b id="infLatency">--</b> ms</span><span>Time: <b id="infTime">--</b></span></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-h"><span class="panel-title">Connection</span><span class="conn-mode-badge mode-none" id="connModeBadge">OFFLINE</span></div>
+            <div class="panel-b">
+              <div class="conn-mode-row"><span class="conn-mode-label">MODE</span><span class="conn-mode-text" id="connModeText">Disconnected</span></div>
+              <div class="detail-row"><span>Protocol</span><span id="connProto">--</span></div>
+              <div class="detail-row"><span>MQTT URL</span><span class="mono" id="connMqtt">--</span></div>
+              <div class="detail-row"><span>Poll URL</span><span class="mono" id="connPoll">--</span></div>
+              <div class="detail-row"><span>API URL</span><span class="mono" id="connApi">--</span></div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-h"><span class="panel-title">Edge Device</span><span class="tag ok">HEALTHY</span></div>
+            <div class="panel-b">
+              <div class="detail-row"><span>Model</span><span>ESP32-S3 + ADXL345</span></div>
+              <div class="detail-row"><span>Sensor ID</span><span id="detId">esp32-s3-01</span></div>
+              <div class="detail-row"><span>Site</span><span id="detSite">demo-site</span></div>
+              <div class="detail-row"><span>ODR</span><span>3200 Hz</span></div>
+              <div class="detail-row"><span>Range</span><span>&plusmn;2 g</span></div>
+              <div class="detail-row"><span>MQTT Topic</span><span class="mono">sensors/esp32-s3-01/accel</span></div>
+              <div class="detail-row"><span>Broker</span><span id="detBroker">--</span></div>
+              <div class="detail-row"><span>Last Frame</span><span id="detLast">--</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== SENSOR PAGE ===== -->
+    <section class="screen" id="screen-sensor">
+      <div class="sensor-grid">
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Sensor Configuration</span><span class="tag ok">ACTIVE</span></div>
+          <div class="panel-b">
+            <div class="detail-row"><span>Sensor ID</span><span>esp32-s3-01</span></div>
+            <div class="detail-row"><span>Firmware Version</span><span>v2.1.0-omni</span></div>
+            <div class="detail-row"><span>Hardware</span><span>ESP32-S3-WROOM-1</span></div>
+            <div class="detail-row"><span>Accelerometer</span><span>ADXL345 (SPI)</span></div>
+            <div class="detail-row"><span>Sampling Rate</span><span>3200 Hz</span></div>
+            <div class="detail-row"><span>Full-Scale Range</span><span>&plusmn;2 g</span></div>
+            <div class="detail-row"><span>Resolution</span><span>10-bit / 3.9 mg/LSB</span></div>
+            <div class="detail-row"><span>Frame Size</span><span>3200 samples (1.0 s)</span></div>
+            <div class="detail-row"><span>Publish Interval</span><span>1.0 s</span></div>
+            <div class="detail-row"><span>Encoding</span><span>Base64 int16 LE</span></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Calibration &amp; Health</span><span class="tag ok">CALIBRATED</span></div>
+          <div class="panel-b">
+            <div class="detail-row"><span>Offset X</span><span id="calOffX">0.012 g</span></div>
+            <div class="detail-row"><span>Offset Y</span><span id="calOffY">-0.008 g</span></div>
+            <div class="detail-row"><span>Offset Z</span><span id="calOffZ">1.003 g</span></div>
+            <div class="detail-row"><span>Calibration Date</span><span>2026-04-28</span></div>
+            <div class="detail-row"><span>Next Calibration</span><span>2026-07-28</span></div>
+            <div class="detail-row"><span>Battery</span><span id="sensorBatt">USB powered</span></div>
+            <div class="detail-row"><span>Uptime</span><span id="sensorUptime">--</span></div>
+            <div class="detail-row"><span>WiFi RSSI</span><span id="sensorRssi">-- dBm</span></div>
+            <div class="detail-row"><span>Free Heap</span><span id="sensorHeap">-- KB</span></div>
+            <div class="detail-row"><span>CPU Temp</span><span id="sensorTemp">-- &deg;C</span></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Signal Quality Metrics</span><span class="tag" id="sigQualTag">--</span></div>
+          <div class="panel-b">
+            <div class="detail-row"><span>Mean Z-axis</span><span id="sqMean">-- g</span></div>
+            <div class="detail-row"><span>RMS</span><span id="sqRms">-- g</span></div>
+            <div class="detail-row"><span>Peak</span><span id="sqPeak">-- g</span></div>
+            <div class="detail-row"><span>Kurtosis</span><span id="sqKurt">--</span></div>
+            <div class="detail-row"><span>Crest Factor</span><span id="sqCrest">--</span></div>
+            <div class="detail-row"><span>Spectral Ratio</span><span id="sqSpec">--</span></div>
+            <div class="detail-row"><span>Zero-Crossing Rate</span><span id="sqZcr">--</span></div>
+            <div class="detail-row"><span>SNR</span><span id="sqSnr">-- dB</span></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Installation Details</span></div>
+          <div class="panel-b">
+            <div class="detail-row"><span>Site</span><span>demo-site</span></div>
+            <div class="detail-row"><span>Location</span><span>33.8938&deg;N, 35.5018&deg;E</span></div>
+            <div class="detail-row"><span>Pipe Material</span><span>PVC</span></div>
+            <div class="detail-row"><span>Pressure</span><span>3.0 bar</span></div>
+            <div class="detail-row"><span>Install Date</span><span>2026-04-15</span></div>
+            <div class="detail-row"><span>Maintenance Window</span><span>Sundays 02:00-04:00 UTC</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== DIAGNOSE PAGE ===== -->
+    <section class="screen" id="screen-diagnose">
+      <div class="diagnose-grid">
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Manual Audio Diagnosis</span></div>
+          <div class="panel-b">
+            <p style="color:var(--fg-2);margin-bottom:16px;font-size:13px;">Upload a WAV file for acoustic analysis by the EEP pipeline.</p>
+            <div class="upload-zone" id="uploadZone">
+              <div class="upload-icon">&#8593;</div>
+              <div class="upload-text">Drop WAV file here or click to browse</div>
+              <div class="upload-sub">16 kHz mono, max 10 MB</div>
+              <input type="file" id="wavInput" accept="audio/wav,audio/wave,audio/x-wav,.wav" />
+            </div>
+            <div id="uploadResult" style="margin-top:16px;display:none;">
+              <div class="verdict-row" id="uploadVerdict"><span class="verdict-label">Result</span><span class="verdict-value" id="uploadVerdictValue">--</span></div>
+              <div class="prob-bars" id="uploadProbBars"></div>
+              <div class="inf-meta"><span>Confidence: <b id="uploadConf">--</b></span><span>Latency: <b id="uploadLatency">--</b> ms</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Real-Time Vibration Monitor</span><span class="tag ok" id="rtTag">LIVE</span></div>
+          <div class="panel-b">
+            <canvas id="diagWaveformCanvas" width="400" height="140"></canvas>
+            <div class="signal-meta" style="margin-top:10px;"><span>RMS: <b id="diagRms">--</b></span><span>Peak: <b id="diagPeak">--</b></span><span>Kurtosis: <b id="diagKurt">--</b></span></div>
+          </div>
+        </div>
+        <div class="panel" style="grid-column:1/-1;">
+          <div class="panel-h"><span class="panel-title">Diagnosis History</span></div>
+          <div class="panel-b" style="padding:0;">
+            <table class="history-table">
+              <thead><tr><th>Time</th><th>Source</th><th>Verdict</th><th>Confidence</th><th>Latency</th><th>Features</th></tr></thead>
+              <tbody id="historyTableBody"><tr><td colspan="6" style="text-align:center;color:var(--fg-3);padding:24px;">Waiting for inference results...</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== DISPATCH PAGE ===== -->
+    <section class="screen" id="screen-dispatch">
+      <div class="dispatch-grid">
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Active Alerts</span><span class="tag" id="alertCountTag">0 OPEN</span></div>
+          <div class="panel-b" id="alertsPanel">
+            <div class="alert-card" id="noAlertsCard">
+              <div class="alert-icon ok">&#10003;</div>
+              <div class="alert-body">
+                <div class="alert-title">All Clear</div>
+                <div class="alert-desc">No active alerts. System operating normally.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Dispatch Actions</span></div>
+          <div class="panel-b">
+            <label style="display:block;font-size:11px;color:var(--fg-3);margin-bottom:4px;font-family:IBM Plex Mono;">SEVERITY</label>
+            <select class="severity-select" id="severitySelect">
+              <option value="low">Low</option>
+              <option value="medium" selected>Medium</option>
+              <option value="high">High</option>
+              <option value="critical">Critical</option>
+            </select>
+            <button class="btn btn-primary" id="btnDispatch" disabled>Create Ticket</button>
+            <button class="btn btn-secondary" id="btnSilence" disabled>Mark False Alarm</button>
+            <button class="btn btn-secondary" id="btnAck" disabled>Resolve</button>
+            <div style="margin-top:16px;font-size:12px;color:var(--fg-3);">
+              <div>Last ticket: <b id="lastTicket">--</b></div>
+              <div>Escalation: <b id="escStatus">Auto</b></div>
+            </div>
+          </div>
+        </div>
+        <div class="panel" style="grid-column:1/-1;">
+          <div class="panel-h"><span class="panel-title">Alert Log</span></div>
+          <div class="panel-b" style="padding:0;">
+            <table class="history-table">
+              <thead><tr><th>Time</th><th>Sensor</th><th>Severity</th><th>Verdict</th><th>Confidence</th><th>Status</th><th>Action</th></tr></thead>
+              <tbody id="alertTableBody"><tr><td colspan="7" style="text-align:center;color:var(--fg-3);padding:24px;">No alerts recorded yet.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel" style="grid-column:1/-1;">
+          <div class="panel-h"><span class="panel-title">Tickets</span></div>
+          <div class="panel-b" style="padding:0;">
+            <table class="history-table">
+              <thead><tr><th>Created</th><th>Sensor</th><th>Verdict</th><th>Status</th><th>Severity</th></tr></thead>
+              <tbody id="ticketTableBody"><tr><td colspan="5" style="text-align:center;color:var(--fg-3);padding:24px;">No tickets yet.</td></tr></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== MLOPS PAGE ===== -->
+    <section class="screen" id="screen-mlops">
+      <div class="mlops-grid">
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">System Health</span><span class="tag ok" id="sysHealthTag">HEALTHY</span></div>
+          <div class="panel-b">
+            <div class="metric-row"><span class="metric-label">CPU Load</span><div class="metric-bar"><div class="metric-fill" id="cpuBar" style="width:0%"></div><span class="metric-val" id="cpuVal">--%</span></div></div>
+            <div class="metric-row"><span class="metric-label">Memory Used</span><div class="metric-bar"><div class="metric-fill" id="memBar" style="width:0%"></div><span class="metric-val" id="memVal">--%</span></div></div>
+            <div class="metric-row"><span class="metric-label">Swap Used</span><div class="metric-bar"><div class="metric-fill" id="swapBar" style="width:0%"></div><span class="metric-val" id="swapVal">--%</span></div></div>
+            <div class="metric-row"><span class="metric-label">Disk Usage</span><div class="metric-bar"><div class="metric-fill" id="diskBar" style="width:0%"></div><span class="metric-val" id="diskVal">--%</span></div></div>
+            <div class="detail-row" style="margin-top:12px;"><span>EEP Health</span><span id="eepHealth" class="tag ok">HEALTHY</span></div>
+            <div class="detail-row"><span>IEP2 Health</span><span id="iep2Health" class="tag ok">HEALTHY</span></div>
+            <div class="detail-row"><span>IEP4 Health</span><span id="iep4Health" class="tag ok">HEALTHY</span></div>
+            <div class="detail-row"><span>MQTT Broker</span><span id="mqttHealth" class="tag ok">HEALTHY</span></div>
+            <div class="detail-row"><span>Bridge Status</span><span id="bridgeHealth" class="tag ok">HEALTHY</span></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Model Status</span></div>
+          <div class="panel-b">
+            <div class="detail-row"><span>IEP2 Model</span><span>autoencoder_ood.pt</span></div>
+            <div class="detail-row"><span>IEP4 Model</span><span>cnn_classifier.pt</span></div>
+            <div class="detail-row"><span>Threshold</span><span id="modelThreshold">0.85</span></div>
+            <div class="detail-row"><span>Last Training</span><span>2026-04-20</span></div>
+            <div class="detail-row"><span>Training Dataset</span><span>synthesized + golden</span></div>
+            <div class="detail-row"><span>OOD Rejection Rate</span><span id="oodRate">0.0%</span></div>
+            <div class="detail-row"><span>Inference Count</span><span id="infCount">0</span></div>
+            <div class="detail-row"><span>Avg Latency</span><span id="avgLatency">-- ms</span></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Container Fleet</span></div>
+          <div class="panel-b" id="containerPanel" style="padding:0;">
+            <div class="container-row"><span class="c-name">caddy</span><span class="c-status up">UP</span></div>
+            <div class="container-row"><span class="c-name">eep</span><span class="c-status up">UP</span></div>
+            <div class="container-row"><span class="c-name">iep2</span><span class="c-status up">UP</span></div>
+            <div class="container-row"><span class="c-name">iep3</span><span class="c-status up">UP</span></div>
+            <div class="container-row"><span class="c-name">iep4</span><span class="c-status up">UP</span></div>
+            <div class="container-row"><span class="c-name">mqtt-broker</span><span class="c-status up">UP</span></div>
+            <div class="container-row"><span class="c-name">mqtt-bridge</span><span class="c-status up">UP</span></div>
+            <div class="container-row"><span class="c-name">grafana</span><span class="c-status up">UP</span></div>
+            <div class="container-row"><span class="c-name">prometheus</span><span class="c-status up">UP</span></div>
+            <div class="container-row"><span class="c-name">timescaledb</span><span class="c-status up">UP</span></div>
+            <div class="container-row"><span class="c-name">redis</span><span class="c-status up">UP</span></div>
+            <div class="container-row"><span class="c-name">mlflow</span><span class="c-status up">UP</span></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Data Collection</span></div>
+          <div class="panel-b">
+            <p style="color:var(--fg-2);font-size:13px;margin-bottom:12px;">Download all inference data for model retraining and analysis.</p>
+            <button class="btn btn-primary" id="exportBtn">&#11015; Export CSV</button>
+            <div style="margin-top:12px;font-size:12px;color:var(--fg-3);">Last export: <b id="lastExport">--</b></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Quick Links</span></div>
+          <div class="panel-b">
+            <a class="quick-link" href="https://grafana.omni-sense.online" target="_blank">Grafana Dashboards &rarr;</a>
+            <a class="quick-link" href="https://prometheus.omni-sense.online" target="_blank">Prometheus Metrics &rarr;</a>
+            <a class="quick-link" href="https://mlflow.omni-sense.online" target="_blank">MLflow Tracking &rarr;</a>
+            <a class="quick-link" href="https://ui.omni-sense.online" target="_blank">Web UI (Audio Upload) &rarr;</a>
+            <a class="quick-link" href="https://eep.omni-sense.online/docs" target="_blank">EEP API Docs &rarr;</a>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><span class="panel-title">Data Management</span></div>
+          <div class="panel-b">
+            <p style="color:var(--fg-2);margin-bottom:14px;font-size:13px;">Export training data for model retraining and offline analysis.</p>
+            <button class="btn btn-primary" id="btnExportCsv">Export Training Data (CSV)</button>
+            <div style="margin-top:12px;font-size:11px;color:var(--fg-3);font-family:IBM Plex Mono;">GET /api/export/csv</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="app.js?v=5"></script>
+</body>
+</html>

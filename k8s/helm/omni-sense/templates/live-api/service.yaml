@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.liveApi.name }}
+  namespace: {{ include "omni-sense.namespace" . }}
+  labels:
+    {{- include "omni-sense.componentLabels" (dict "component" .Values.liveApi.name "context" .) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "omni-sense.selectorLabels" (dict "component" .Values.liveApi.name "context" .) | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.liveApi.port }}
+      targetPort: http
+      protocol: TCP

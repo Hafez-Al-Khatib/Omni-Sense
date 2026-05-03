@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 from omni.spatial.tdoa import (
+    COHERENCE_THRESHOLD,
     PipeSegment,
     TDOAResult,
     fuse_results,
@@ -67,9 +68,10 @@ def _synthetic_frames(
     noise_b = rng.normal(0, noise_amp, N).astype(np.float32)
 
     t_onset = N // 3
-    burst_len = 64
-    t_vec = np.arange(burst_len)
-    burst = (np.hanning(burst_len) * np.sin(2 * np.pi * 50 / sr * t_vec)).astype(np.float32)
+    burst_len = 4096
+    burst_raw = rng.normal(0, 1.0, burst_len).astype(np.float32)
+    burst_raw *= np.hanning(burst_len)
+    burst = burst_raw / np.max(np.abs(burst_raw))
 
     pcm_a = noise_a.copy()
     pcm_a[t_onset : t_onset + burst_len] += burst
@@ -138,7 +140,7 @@ class TestGccPhat:
     def test_positive_lag_positive_delay(self, lag_samples):
         """When B is delayed (A received first) delay_s must be positive."""
         pcm_a, pcm_b = self._make_delayed(lag_samples)
-        delay_s, peak = gcc_phat(pcm_a, pcm_b, sr=SR, max_delay_s=0.2)
+        delay_s, peak, coherence = gcc_phat(pcm_a, pcm_b, sr=SR, max_delay_s=0.2)
         assert delay_s > 0, f"Expected positive delay, got {delay_s:.4f} s"
         assert peak > 0.5, f"GCC-PHAT peak too low: {peak:.4f}"
 
@@ -152,7 +154,7 @@ class TestGccPhat:
         end-to-end accuracy gate.
         """
         pcm_a, pcm_b = self._make_delayed(lag_samples)
-        delay_s, _ = gcc_phat(pcm_a, pcm_b, sr=SR, max_delay_s=0.15)
+        delay_s, _, _ = gcc_phat(pcm_a, pcm_b, sr=SR, max_delay_s=0.15)
         recovered_lag = round(delay_s * SR)
         assert abs(recovered_lag - lag_samples) <= 2, (
             f"lag_true={lag_samples}  recovered={recovered_lag}"
@@ -161,7 +163,7 @@ class TestGccPhat:
     def test_negative_lag_negative_delay(self):
         """When A is delayed (B received first) delay_s must be negative."""
         pcm_b, pcm_a = self._make_delayed(80)   # swap roles
-        delay_s, _ = gcc_phat(pcm_a, pcm_b, sr=SR, max_delay_s=0.15)
+        delay_s, _, _ = gcc_phat(pcm_a, pcm_b, sr=SR, max_delay_s=0.15)
         assert delay_s < 0, f"Expected negative delay, got {delay_s:.4f} s"
 
     def test_zero_lag(self):
@@ -169,13 +171,14 @@ class TestGccPhat:
         N = SR * 5
         rng = np.random.default_rng(0)
         pcm = rng.normal(0, 0.01, N).astype(np.float32)
-        delay_s, _ = gcc_phat(pcm.copy(), pcm.copy(), sr=SR, max_delay_s=0.1)
+        delay_s, _, _ = gcc_phat(pcm.copy(), pcm.copy(), sr=SR, max_delay_s=0.1)
         assert abs(delay_s) < 1 / SR + 1e-9
 
     def test_peak_in_range(self):
         pcm_a, pcm_b = self._make_delayed(50)
-        _, peak = gcc_phat(pcm_a, pcm_b, sr=SR, max_delay_s=0.1)
+        _, peak, coherence = gcc_phat(pcm_a, pcm_b, sr=SR, max_delay_s=0.1)
         assert 0.0 <= peak <= 1.0
+        assert 0.0 <= coherence <= 1.0
 
 
 # ─── PipeSegment ──────────────────────────────────────────────────────────────
@@ -308,7 +311,7 @@ class TestLocalize:
 
 
 class TestFuseResults:
-    def _make_result(self, dist: float, confidence: float, seg=_DEMO_SEG) -> TDOAResult:
+    def _make_result(self, dist: float, confidence: float, seg=_DEMO_SEG, coherence: float = 0.95) -> TDOAResult:
         lat, lon = seg.to_latlon(dist)
         return TDOAResult(
             segment_id=seg.segment_id,
@@ -321,6 +324,7 @@ class TestFuseResults:
             pipe_material=seg.pipe_material,
             wave_speed_ms=wave_speed(seg.pipe_material),
             uncertainty_m=wave_speed(seg.pipe_material) / (2 * SR),
+            coherence=coherence,
         )
 
     def test_empty_returns_none(self):
@@ -354,10 +358,19 @@ class TestFuseResults:
         # Fused lat should be very close to r_good's lat
         assert abs(out.lat - r_good.lat) < abs(out.lat - r_weak.lat)
 
+    def test_low_coherence_filtered_out(self):
+        """Results with coherence below threshold must be excluded from fusion."""
+        r_good = self._make_result(10.0, 0.95, coherence=0.8)
+        r_bad = self._make_result(110.0, 0.95, coherence=0.2)
+        out = fuse_results([r_good, r_bad])
+        assert out is not None
+        assert out.lat == pytest.approx(r_good.lat, abs=1e-9)
+
     def test_all_invalid_returns_none(self):
         r = TDOAResult(
             segment_id="X", sensor_a_id="SA", sensor_b_id="SB",
             delay_s=999.0, peak_correlation=0.5,
             dist_from_a_m=None,  # invalid
+            coherence=0.0,
         )
         assert fuse_results([r]) is None

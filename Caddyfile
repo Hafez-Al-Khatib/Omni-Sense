@@ -39,10 +39,43 @@ mlflow.{$OMNI_DOMAIN} {
     }
 }
 
-# ── Ops Console (Streamlit) ──
+# ── Operations Console (static production dashboard) ──
 ops.{$OMNI_DOMAIN} {
-    reverse_proxy omni-platform:8501
+    root * /srv/dashboard
     encode gzip
+
+    basic_auth {
+        admin {$OMNI_DASHBOARD_HASH:$2b$10$W28V.KrZOHt6iNawOBLDeOALx2p2YkFaPnSa7JrWZwVlfddTJbgLe}
+    }
+
+    # Live API proxy (strips /api prefix)
+    handle_path /api/* {
+        reverse_proxy live-api:8080
+    }
+
+    # Static data endpoints (before SPA fallback)
+    handle_path /data/* {
+        root * /srv/dashboard/data
+        file_server
+    }
+
+    try_files {path} /index.html
+    file_server
+}
+
+# ── Live API (dedicated subdomain, no SPA conflicts) ──
+api.{$OMNI_DOMAIN} {
+    reverse_proxy live-api:8080
+    encode gzip
+}
+
+# ── MQTT WebSocket proxy (for browser dashboard) ──
+mqtt.{$OMNI_DOMAIN} {
+    reverse_proxy mqtt-broker:9001 {
+        transport http {
+            versions 1.1
+        }
+    }
 }
 
 # ── Web UI (static upload / analysis frontend) ──

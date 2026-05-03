@@ -39,10 +39,12 @@ IMPORTANT — Before the platform becomes operational:
 
 SERVICE ENDPOINTS:
 {{- if .Values.ingress.enabled }}
-  EEP API      : https://{{ .Values.ingress.hosts.api.host }}
-  Ops Console  : https://{{ .Values.ingress.hosts.console.host }}
+  EEP API      : https://eep.{{ .Values.domain }}
+  Live API     : https://api.{{ .Values.domain }}
+  Ops Console  : https://console.{{ .Values.domain }}
 {{- else }}
   EEP API      : kubectl port-forward svc/eep 8000:8000 -n {{ .Release.Namespace }}
+  Live API     : kubectl port-forward svc/live-api 8080:8080 -n {{ .Release.Namespace }}
   Ops Console  : kubectl port-forward svc/omni-platform 8501:8501 -n {{ .Release.Namespace }}
 {{- end }}
 

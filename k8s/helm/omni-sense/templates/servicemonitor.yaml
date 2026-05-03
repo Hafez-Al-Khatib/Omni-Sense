@@ -47,6 +47,21 @@ spec:
           targetLabel: service
         - sourceLabels: [__meta_kubernetes_pod_name]
           targetLabel: pod
+
+    # ── Live API (real-time inference & ticketing API) ─────────────────────────
+    - port: http
+      path: {{ .Values.serviceMonitor.metricsPath }}
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_service_name]
+          targetLabel: service
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+      metricRelabelings:
+        - sourceLabels: [__name__]
+          regex: "omni_.*|fastapi_.*|python_gc_.*|process_.*"
+          action: keep
 ---
 # Separate ServiceMonitor for IEP services (may have longer scrape timeouts
 # due to ML inference latency)
