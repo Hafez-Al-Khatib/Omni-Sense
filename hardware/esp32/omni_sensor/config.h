@@ -1,8 +1,8 @@
   #ifndef CONFIG_H
   #define CONFIG_H
 
-  #define WIFI_SSID "Mafi Net"
-  #define WIFI_PASSWORD "knim3068"
+  #define WIFI_SSID "Hafez-WiFi"
+  #define WIFI_PASSWORD "01061956HRMK$"
 
   // Production MQTT broker (direct IP avoids DNS dependency on constrained networks)
   // Caddy proxies wss://mqtt.omni-sense.online → broker:9001 for browser dashboards.

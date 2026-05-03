@@ -71,7 +71,7 @@
 #define ADXL_MISO_PIN     16
 #define ADXL_MOSI_PIN     17
 #define ADXL_SCK_PIN      18
-#define ADXL_SPI_FREQ     4000000   // 4 MHz — well within 5 MHz single-byte limit
+#define ADXL_SPI_FREQ     1000000   // 1 MHz — slower but stable on breadboards
 
 // ADXL345 register addresses
 #define ADXL_REG_DEVID        0x00
@@ -189,17 +189,23 @@ static inline void adxl_cs_low()  { digitalWrite(ADXL_CS_PIN, LOW);  }
 static inline void adxl_cs_high() { digitalWrite(ADXL_CS_PIN, HIGH); }
 
 static void adxl_write(uint8_t reg, uint8_t val) {
+  _spi.beginTransaction(SPISettings(ADXL_SPI_FREQ, MSBFIRST, SPI_MODE3));
   adxl_cs_low();
+  delayMicroseconds(1);
   _spi.transfer(reg & 0x3F);   // write: bit7=0, bit6=0
   _spi.transfer(val);
   adxl_cs_high();
+  _spi.endTransaction();
 }
 
 static uint8_t adxl_read(uint8_t reg) {
+  _spi.beginTransaction(SPISettings(ADXL_SPI_FREQ, MSBFIRST, SPI_MODE3));
   adxl_cs_low();
+  delayMicroseconds(1);
   _spi.transfer(ADXL_SPI_READ | (reg & 0x3F));
   uint8_t val = _spi.transfer(0x00);
   adxl_cs_high();
+  _spi.endTransaction();
   return val;
 }
 
@@ -215,24 +221,30 @@ static int adxl_read_fifo(int16_t *dst, int n_samples) {
 
   if (to_read == 0) return 0;
 
+  _spi.beginTransaction(SPISettings(ADXL_SPI_FREQ, MSBFIRST, SPI_MODE3));
   adxl_cs_low();
+  delayMicroseconds(1);
   // Multi-byte read from DATAX0 (0x32): set bits 7 and 6
   _spi.transfer(ADXL_SPI_READ | ADXL_SPI_MB | ADXL_REG_DATAX0);
   for (int i = 0; i < to_read; i++) {
-    int16_t x_raw = (int16_t)(_spi.transfer(0) | ((uint16_t)_spi.transfer(0) << 8));
-    int16_t y_raw = (int16_t)(_spi.transfer(0) | ((uint16_t)_spi.transfer(0) << 8));
-    int16_t z_raw = (int16_t)(_spi.transfer(0) | ((uint16_t)_spi.transfer(0) << 8));
-    (void)x_raw; (void)y_raw;   // discard X, Y
-    dst[i] = z_raw;
+    uint8_t x0 = _spi.transfer(0);
+    uint8_t x1 = _spi.transfer(0);
+    uint8_t y0 = _spi.transfer(0);
+    uint8_t y1 = _spi.transfer(0);
+    uint8_t z0 = _spi.transfer(0);
+    uint8_t z1 = _spi.transfer(0);
+    (void)x0; (void)x1; (void)y0; (void)y1;  // discard X, Y
+    dst[i] = (int16_t)(z0 | ((uint16_t)z1 << 8));
   }
   adxl_cs_high();
+  _spi.endTransaction();
   return to_read;
 }
 
 // ─────────────────────────── ADXL345 init ─────────────────────────────────────
 
 static bool adxl_init() {
-  _spi.begin(ADXL_SCK_PIN, ADXL_MISO_PIN, ADXL_MOSI_PIN, ADXL_CS_PIN);
+  _spi.begin(ADXL_SCK_PIN, ADXL_MISO_PIN, ADXL_MOSI_PIN, -1);  // FIX: -1 disables hardware CS control
   _spi.setFrequency(ADXL_SPI_FREQ);
   _spi.setDataMode(SPI_MODE3);   // ADXL345 requires CPOL=1, CPHA=1
 
@@ -674,6 +686,27 @@ void loop() {
 
   // DC removal — strip gravity component so only pipe vibration remains
   remove_dc_offset(_zBuf, FRAME_SAMPLES);
+
+  // SANITY CHECK: print min/max/mean of first frame to verify SPI integrity
+  if (_frameCount == 1) {
+    int16_t zmin = _zBuf[0], zmax = _zBuf[0];
+    int32_t zsum = 0;
+    int stuck = 0;
+    for (int i = 0; i < FRAME_SAMPLES; i++) {
+      if (_zBuf[i] < zmin) zmin = _zBuf[i];
+      if (_zBuf[i] > zmax) zmax = _zBuf[i];
+      zsum += _zBuf[i];
+      if (_zBuf[i] == _zBuf[0]) stuck++;
+    }
+    Serial.printf("[SANITY] min=%d max=%d mean=%.1f stuck=%d/3200\n",
+                  zmin, zmax, (float)zsum / FRAME_SAMPLES, stuck);
+    if (stuck > 1000) {
+      Serial.println("[SANITY] WARNING: >1000 identical samples — SPI bus is corrupted!");
+      Serial.println("[SANITY] Check: loose wires, 3.3V power, breadboard contacts.");
+    } else {
+      Serial.println("[SANITY] OK: data looks like real vibration.");
+    }
+  }
 
   // VAD: compute RMS in physical g units
   float rms_g  = compute_rms_g(_zBuf, FRAME_SAMPLES);
