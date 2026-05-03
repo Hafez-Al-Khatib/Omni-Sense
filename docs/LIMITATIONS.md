@@ -17,6 +17,7 @@ Omni-Sense is a fully functional acoustic-vibration leak detection platform with
 | 5 | Training data mismatch: 1024-d YAMNet vs 39-d DSP features | **Critical** | **Fixed** | Aligned IEP2 models to 41-d input (39 DSP + 2 metadata); OOD IF uses 39-d |
 | 6 | ESP32 firmware topic mismatch with MQTT broker | **Major** | **Fixed** | Corrected topic namespace in firmware and RPi edge agent; verified via integration tests |
 | 7 | Synthetic accelerometer data used for vibration testing | **Minor** | In Progress | Pipeline supports real WAV ingestion; awaiting physical sensor acquisition |
+| 8 | Sensor geolocation is approximate (IP geo or manual placement) | **Minor** | Open | WiFi positioning scan implemented in firmware; dashboard supports drag-and-drop fine-tuning; GPS module recommended for production |
 
 ---
 
@@ -84,7 +85,33 @@ No component has been physically mounted on a pipe, and no TDOA latency measurem
 
 **Estimated effort:** 2–3 weeks for a single protocol; 4–6 weeks for OPC-UA + Modbus.
 
-#### 4. Kubernetes Helm Charts Untested (Minor → Open)
+#### 4. Sensor Geolocation Approximate (Minor → Open)
+**Current state:** Sensor location on the dashboard map is determined by one of three methods, none of which is GPS-accurate:
+1. **Manual drag-and-drop** (most accurate for demos) — user moves the marker to the exact pipe location.
+2. **Browser geolocation fallback** — uses the operator's laptop/phone GPS or WiFi triangulation.
+3. **IP geolocation fallback** — resolves the router's public IP to a city-level coordinate (often 10–50 km off).
+
+The ESP32 firmware now includes a **WiFi positioning scan** (`WiFi.scanNetworks()`) that publishes the top 3 nearby access points (BSSID + RSSI) in the telemetry JSON. A server-side integration with a geolocation service (e.g., Google Geolocation API, Mozilla Location Service, or OpenCellID) could resolve these scans to ~10–50 m accuracy in urban areas with dense WiFi coverage. This is not yet wired end-to-end.
+
+**Comparison of geolocation options:**
+
+| Method | Hardware Cost | Accuracy | Best For |
+|--------|--------------|----------|----------|
+| Manual dashboard placement | $0 | GPS-level | Lab demos, single-sensor installs |
+| WiFi positioning (BSSID triangulation) | $0 | 10–50 m | Urban deployments with dense AP coverage |
+| GPS module (NEO-6M / NEO-M8N) | ~$3–8 | 2–5 m | Production field deployment, rural areas |
+| LTE tower triangulation | $0 (with cellular modem) | 100 m–2 km | Sensors with existing cellular backhaul |
+
+**Path to resolution:**
+1. **Short-term (capstone):** Document WiFi scan capability; use manual placement for demos.
+2. **Pilot:** Implement server-side geolocation resolver that forwards BSSID/RSSI lists to Google Geolocation API (40k free requests/month) or an open alternative.
+3. **Production:** Add a $3 NEO-6M GPS module to the BOM; send NMEA sentences over UART; parse lat/lng in firmware and include in telemetry JSON.
+
+**Estimated effort:** 1–2 days for GPS module integration; 1 week for server-side WiFi resolver.
+
+---
+
+### 5. Kubernetes Helm Charts Untested (Minor → Open)
 **Current state:** Helm charts in `k8s/helm/` define deployments for IEP2, IEP3, IEP4, EEP, Prometheus, Grafana, and ArgoCD. They have been linted (`helm lint`) but never deployed to a live cluster.
 
 **Path to resolution:**
@@ -106,8 +133,8 @@ The following components are **fully implemented, tested, and operational** in a
 | **End-to-end inference pipeline** | ✅ Production-ready | Docker Compose brings up 8 services; integration tests pass |
 | **DSP feature extraction (39-d)** | ✅ Production-ready | Validated against synthetic WAV files in `Processed_audio_16k/` |
 | **TDOA localization with coherence validation** | ✅ Algorithmically complete | Unit tests in `omni/algorithms/tests/` pass; GCC-PHAT + coherence gating implemented |
-| **Real-time web dashboard** | ✅ Production-ready | `web-ui/index.html` streams MQTT-over-WebSocket; displays leak location and confidence |
-| **MQTT bridge (edge ↔ cloud)** | ✅ Production-ready | Mosquitto broker with TLS client certs; tested with 1000 msg/sec load |
+| **Real-time web dashboard** | ✅ Production-ready | `web-ui/index.html` streams MQTT-over-WebSocket; displays leak location and confidence; supports drag-and-drop sensor placement |
+| **MQTT bridge (edge ↔ cloud)** | ✅ Production-ready | Mosquitto broker with TLS client certs; tested with 1000 msg/sec load; auto-generated sensor IDs from MAC |
 | **TLS mutual authentication** | ✅ Production-ready | Certificates in `certs/`; MQTT and gRPC enforce mTLS |
 | **JWT-based API auth** | ✅ Production-ready | IEP3 ticket service issues and validates tokens; RBAC roles defined |
 | **Docker Compose deployment** | ✅ Production-ready | `docker-compose up --build` verified on Windows and Linux |
@@ -137,6 +164,6 @@ Omni-Sense is a **production-architecture prototype** with all software layers i
 
 ---
 
-*Document version: 1.0*  
-*Last updated: 2026-05-02*  
+*Document version: 1.1*  
+*Last updated: 2026-05-03*  
 *Maintainers: Omni-Sense Capstone Team*

@@ -552,13 +552,34 @@ static void publish_telemetry() {
   extern float temperatureRead();
   temp_c = temperatureRead();
 #endif
+
+  // WiFi positioning scan: collect top 3 nearby APs for geolocation
+  int n = WiFi.scanNetworks();
+  char wifiscan[256] = "";
+  if (n > 0) {
+    int found = 0;
+    strcat(wifiscan, "\"wifi_scan\":[");
+    for (int i = 0; i < n && found < 3; i++) {
+      if (found > 0) strcat(wifiscan, ",");
+      char entry[80];
+      snprintf(entry, sizeof(entry),
+        "{\"bssid\":\"%s\",\"rssi\":%d}",
+        WiFi.BSSIDstr(i).c_str(), WiFi.RSSI(i));
+      strcat(wifiscan, entry);
+      found++;
+    }
+    strcat(wifiscan, "],");
+  }
+  if (n > 0) WiFi.scanDelete();
+
   snprintf(_jsonbuf, sizeof(_jsonbuf),
     "{\"sensor_id\":\"%s\",\"captured_at\":\"%s\","
+    "%s"
     "\"battery_pct\":%.1f,\"temperature_c\":%.1f,"
     "\"disk_free_mb\":%.1f,\"rtc_drift_ms\":0,"
     "\"uptime_s\":%lld,\"firmware_version\":\"%s\","
     "\"wifi_rssi\":%d,\"frames_published\":%lu,\"frames_dropped\":%lu}",
-    _sensorId, ts, batt, temp_c,
+    _sensorId, ts, wifiscan, batt, temp_c,
     (float)heap/1024.0f, uptime, FIRMWARE_VERSION,
     WiFi.RSSI(), _publishCount, _dropCount);
   mqtt_publish_raw(_telemetryTopic, _jsonbuf);
