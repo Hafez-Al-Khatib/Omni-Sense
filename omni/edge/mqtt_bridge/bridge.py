@@ -354,6 +354,11 @@ def process_window(sensor_id: str, samples: np.ndarray):
             probs = {"HEALTHY": 0.33, "LEAK": 0.33, "CRACK": 0.34}
             source = "iep2_ood"
             features_dict = {}
+            anomaly_score = iep2_data.get("anomaly_score")
+            ood_threshold = iep2_data.get("threshold")
+        else:
+            anomaly_score = None
+            ood_threshold = None
         else:
             # Map IEP2 label to our verdict space
             label = iep2_data.get("label", "No_Leak")
@@ -388,6 +393,10 @@ def process_window(sensor_id: str, samples: np.ndarray):
         "window_samples": len(samples),
         "source": source,
     }
+    if anomaly_score is not None:
+        result["anomaly_score"] = anomaly_score
+    if ood_threshold is not None:
+        result["ood_threshold"] = ood_threshold
 
     # 3. Publish result
     result_topic = f"sensors/{sensor_id}/result"

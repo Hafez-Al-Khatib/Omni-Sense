@@ -81,6 +81,11 @@ class CalibrationManager:
         logger.info("Calibration reset to default.")
 
     @property
+    def threshold(self) -> float | None:
+        with self._lock:
+            return self._threshold
+
+    @property
     def is_calibrated(self) -> bool:
         with self._lock:
             return self._threshold is not None

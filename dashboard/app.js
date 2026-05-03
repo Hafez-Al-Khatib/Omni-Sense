@@ -181,6 +181,7 @@ function updateSensorOnMap(sensorId, data) {
       marker: null,
       verdict: data.verdict || 'UNKNOWN',
       site: data.site || S.sensorMeta.site,
+      source: data.source || 'vibration',
     };
     s.marker = L.marker([s.lat, s.lng], { icon: makeSensorIcon(true), draggable: true }).addTo(map).bindPopup('');
     s.marker.on('dragend', (e) => {
@@ -196,12 +197,14 @@ function updateSensorOnMap(sensorId, data) {
   s.online = true;
   s.verdict = data.verdict || s.verdict;
   s.site = data.site || s.site;
+  s.source = data.source || s.source;
   if (data.lat && data.lng) {
     s.lat = data.lat; s.lng = data.lng;
     s.marker.setLatLng([s.lat, s.lng]);
   }
   s.marker.setIcon(makeSensorIcon(true));
-  s.marker.setPopupContent(`<b>${sensorId}</b><br>${s.site}<br><span style="color:#0dc9d0">&#9679; ONLINE</span> · ${s.verdict}`);
+  const popupVerdict = (s.verdict==='UNKNOWN'&&s.source==='iep2_ood')?'OOD':s.verdict;
+  s.marker.setPopupContent(`<b>${sensorId}</b><br>${s.site}<br><span style="color:#0dc9d0">&#9679; ONLINE</span> · ${popupVerdict}`);
   updateSensorKPIs();
   updateSensorScreen(sensorId);
 }
@@ -289,11 +292,19 @@ function drawWaveform(canvasId, samples, rms) {
 /* ── Inference Rendering ── */
 function renderInference(inf) {
   const isStale = inf.stale;
-  const displayVerdict = (inf.verdict || '--') + (isStale ? ' (STALE)' : '');
+  const isOod = inf.source === 'iep2_ood';
+  const displayVerdict = isOod ? 'Out-of-Distribution' : ((inf.verdict || '--') + (isStale ? ' (STALE)' : ''));
   const vEl=$('#verdictValue');
-  if(vEl){vEl.textContent=displayVerdict;vEl.className='verdict-value '+(isStale?'unknown':tagCls(inf.verdict));}
+  if(vEl){vEl.textContent=displayVerdict;vEl.className='verdict-value '+(isOod?'unknown':(isStale?'unknown':tagCls(inf.verdict)));}
   const tEl=$('#infTag');
-  if(tEl){tEl.textContent=displayVerdict;tEl.className='tag '+(isStale?'unknown':tagCls(inf.verdict));}
+  if(tEl){tEl.textContent=displayVerdict;tEl.className='tag '+(isOod?'unknown':(isStale?'unknown':tagCls(inf.verdict)));}
+  const oodEl=$('#oodDetail');
+  if(oodEl){
+    if(isOod&&inf.anomaly_score!==undefined&&inf.ood_threshold!==undefined){
+      oodEl.innerHTML='<span style="color:var(--fg-2)">OOD score: '+inf.anomaly_score.toFixed(4)+' < threshold '+inf.ood_threshold.toFixed(4)+'</span>';
+      oodEl.style.display='block';
+    }else{oodEl.style.display='none';}
+  }
   const bars=$('#probBars');
   if(bars){bars.innerHTML='';
     const labels={HEALTHY:'Healthy',LEAK:'Leak',CRACK:'Crack',UNKNOWN:'Unknown'};
@@ -343,7 +354,8 @@ function updateHistoryTables() {
   if(tb&&S.inferHist.length>0){
     tb.innerHTML=S.inferHist.slice(0,20).map(inf=>{
       const f=inf.features||{};
-      return `<tr><td>${fmtTime(inf.ts)}</td><td>${inf.source||'vibration'}</td><td class="v-${inf.verdict}">${inf.verdict}</td><td>${((inf.confidence||0)*100).toFixed(1)}%</td><td>${Math.round(inf.latency_ms||0)} ms</td><td>RMS:${(f.rms||0).toFixed(3)} K:${(f.kurtosis||0).toFixed(1)}</td></tr>`;
+      const vDisplay = inf.source==='iep2_ood' ? 'OOD' : inf.verdict;
+      return `<tr><td>${fmtTime(inf.ts)}</td><td>${inf.source||'vibration'}</td><td class="v-${inf.verdict}">${vDisplay}</td><td>${((inf.confidence||0)*100).toFixed(1)}%</td><td>${Math.round(inf.latency_ms||0)} ms</td><td>RMS:${(f.rms||0).toFixed(3)} K:${(f.kurtosis||0).toFixed(1)}</td></tr>`;
     }).join('');
   }
 }
@@ -453,7 +465,7 @@ function ingestResult(data) {
   const now = Date.now();
   const isStale = now - dataTs > SENSOR_TIMEOUT_MS;
 
-  const inf = { ts: dataTs, verdict: data.verdict, probs: data.probs || {}, confidence: data.confidence || 0, latency_ms: data.latency_ms || 0, features: data.features || {}, sensor_id: sensorId, source: data.source || 'vibration', stale: isStale };
+  const inf = { ts: dataTs, verdict: data.verdict, probs: data.probs || {}, confidence: data.confidence || 0, latency_ms: data.latency_ms || 0, features: data.features || {}, sensor_id: sensorId, source: data.source || 'vibration', stale: isStale, anomaly_score: data.anomaly_score, ood_threshold: data.ood_threshold };
   S.inferHist.unshift(inf);
   if (S.inferHist.length > CFG.maxHistory) S.inferHist.pop();
   renderInference(inf);

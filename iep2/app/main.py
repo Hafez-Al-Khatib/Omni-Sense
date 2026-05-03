@@ -54,6 +54,17 @@ from app.schemas import (
 )
 from omni.common.config import OOD_IF_THRESHOLD
 
+# ─── OOD threshold override ───────────────────────────────────────────────────
+# OMNI_OOD_THRESHOLD env var overrides the compiled default.
+# calibration_mgr.threshold overrides both after /calibrate is called.
+def _get_ood_threshold() -> float:
+    env_val = os.getenv("OMNI_OOD_THRESHOLD")
+    if env_val is not None:
+        return float(env_val)
+    if calibration_mgr.is_calibrated and calibration_mgr.threshold is not None:
+        return calibration_mgr.threshold
+    return OOD_IF_THRESHOLD
+
 # ─── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("iep2")
@@ -190,21 +201,22 @@ async def diagnose(request: Request, request_body: DiagnoseRequest):
         anomaly_score = ood_detector.score(vibration_features)
         OOD_ANOMALY_SCORE.set(float(anomaly_score))
         
-        # Use centralized threshold from omni.common.config
+        # Use calibrated threshold if available, then env override, then default.
         # Higher = more normal; lower (more negative) = more anomalous.
-        is_ood = anomaly_score < OOD_IF_THRESHOLD
+        threshold = _get_ood_threshold()
+        is_ood = anomaly_score < threshold
 
         if is_ood:
             OOD_REJECTIONS.inc()
             logger.warning(
-                f"OOD rejection: score={anomaly_score:.4f}, threshold={OOD_IF_THRESHOLD}"
+                f"OOD rejection: score={anomaly_score:.4f}, threshold={threshold}"
             )
             return JSONResponse(
                 status_code=422,
                 content={
                     "error": "Out-of-Distribution Acoustic Environment",
                     "anomaly_score": float(anomaly_score),
-                    "threshold": float(OOD_IF_THRESHOLD),
+                    "threshold": float(threshold),
                 },
             )
 
