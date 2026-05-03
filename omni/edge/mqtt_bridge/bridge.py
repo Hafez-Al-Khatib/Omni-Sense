@@ -27,6 +27,8 @@ import numpy as np
 import paho.mqtt.client as mqtt
 import requests
 
+from features import extract_features
+
 try:
     import psycopg2
     from psycopg2.extras import execute_values
@@ -45,6 +47,9 @@ MQTT_PASS = os.environ.get("OMNI_MQTT_PASSWORD", "")
 EEP_URL = os.environ.get("OMNI_EEP_URL", "http://eep:8000")
 DIAGNOSE_ENDPOINT = f"{EEP_URL}/api/v1/diagnose"
 USE_EEP = os.environ.get("BRIDGE_USE_EEP", "false").lower() == "true"
+
+IEP2_URL = os.environ.get("OMNI_IEP2_URL", "http://iep2:8002")
+IEP2_DIAGNOSE_ENDPOINT = f"{IEP2_URL}/diagnose"
 
 TIMESCALE_DSN = os.environ.get("TIMESCALE_DSN", "")
 BRIDGE_METRICS_PORT = int(os.environ.get("BRIDGE_METRICS_PORT", "9091"))
@@ -271,65 +276,143 @@ def handle_accel_frame(topic: str, payload: bytes):
     # Process outside lock
     process_window(sensor_id, all_samples)
 
+def _map_iep2_label(label: str) -> str:
+    """Map IEP2 diagnosis label to bridge verdict space."""
+    if not label:
+        return "HEALTHY"
+    lower = label.lower()
+    if "no_leak" in lower or "normal" in lower or "healthy" in lower:
+        return "HEALTHY"
+    if "crack" in lower:
+        return "CRACK"
+    if "leak" in lower or "orifice" in lower or "gasket" in lower:
+        return "LEAK"
+    return "HEALTHY"
+
+
+def _normalize_probs(iep2_probs: dict) -> dict:
+    """Aggregate IEP2 class probabilities into bridge probability space."""
+    healthy = 0.0
+    leak = 0.0
+    crack = 0.0
+
+    for key, val in iep2_probs.items():
+        lower = key.lower()
+        if "no_leak" in lower or "normal" in lower or "healthy" in lower:
+            healthy += val
+        elif "crack" in lower:
+            crack += val
+        elif "leak" in lower or "orifice" in lower or "gasket" in lower:
+            leak += val
+
+    total = healthy + leak + crack
+    if total > 0:
+        healthy /= total
+        leak /= total
+        crack /= total
+    else:
+        healthy = leak = crack = 1.0 / 3.0
+
+    return {
+        "HEALTHY": round(healthy, 4),
+        "LEAK": round(leak, 4),
+        "CRACK": round(crack, 4),
+    }
+
+
 def process_window(sensor_id: str, samples: np.ndarray):
+    """Extract DSP features at 3.2 kHz and call IEP2 for ML inference."""
     global _inference_count
     t0 = time.time()
     print(f"[bridge] {sensor_id}: processing {len(samples)} samples ({len(samples)/SOURCE_SR:.2f}s)")
 
-    # 1. Vibration analysis (always runs)
-    vibe = classify_vibration(samples, SOURCE_SR)
-    latency_ms = (time.time() - t0) * 1000
+    # 1. Extract DSP features and call IEP2
+    try:
+        features = extract_features(samples, sr=int(SOURCE_SR))
 
-    # 2. Optional EEP fallback
-    eep_result = None
-    if USE_EEP:
-        resampled = resample_linear(samples, SOURCE_SR, TARGET_SR)
-        wav_bytes = write_wav(resampled, int(TARGET_SR))
-        eep_result = submit_to_eep(sensor_id, wav_bytes)
+        # Add metadata (pipe_material, pressure_bar) → 41-d vector
+        features_with_meta = np.concatenate([
+            features,
+            np.array([0.0, 3.0], dtype=np.float32)  # PVC=0.0, pressure=3.0 bar
+        ])
 
-    # 3. Build result payload
+        payload = {
+            "embedding": features_with_meta.tolist(),
+            "pipe_material": "PVC",
+            "pressure_bar": 3.0,
+        }
+
+        resp = requests.post(IEP2_DIAGNOSE_ENDPOINT, json=payload, timeout=5)
+        iep2_data = resp.json()
+        latency_ms = (time.time() - t0) * 1000
+
+        if resp.status_code == 422:
+            # OOD rejection
+            verdict = "UNKNOWN"
+            confidence = 0.0
+            probs = {"HEALTHY": 0.33, "LEAK": 0.33, "CRACK": 0.34}
+            source = "iep2_ood"
+            features_dict = {}
+        else:
+            # Map IEP2 label to our verdict space
+            label = iep2_data.get("label", "No_Leak")
+            verdict = _map_iep2_label(label)
+            confidence = iep2_data.get("confidence", 0.5)
+            iep2_probs = iep2_data.get("probabilities", {})
+            probs = _normalize_probs(iep2_probs)
+            source = "iep2_ml"
+            features_dict = {}
+
+    except Exception as e:
+        # Fallback to heuristic on IEP2 failure
+        print(f"[bridge] IEP2 error: {e}, falling back to heuristic")
+        vibe = classify_vibration(samples, SOURCE_SR)
+        latency_ms = (time.time() - t0) * 1000
+        verdict = vibe["verdict"]
+        confidence = vibe["confidence"]
+        probs = vibe["probs"]
+        features_dict = vibe["features"]
+        source = "vibration_analysis"
+
+    # 2. Build result payload
     result = {
         "sensor_id": sensor_id,
         "ts": time.time() * 1000,
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "verdict": vibe["verdict"],
-        "probs": vibe["probs"],
-        "confidence": vibe["confidence"],
+        "verdict": verdict,
+        "probs": probs,
+        "confidence": confidence,
         "latency_ms": round(latency_ms, 1),
-        "features": vibe["features"],
+        "features": features_dict,
         "window_samples": len(samples),
-        "source": "vibration_analysis",
+        "source": source,
     }
-    if eep_result:
-        result["eep"] = eep_result
-        result["source"] = "hybrid"
 
-    # 4. Publish result
+    # 3. Publish result
     result_topic = f"sensors/{sensor_id}/result"
     _mqtt_client.publish(result_topic, json.dumps(result))
-    print(f"[bridge] {sensor_id}: {vibe['verdict']} (conf={vibe['confidence']:.2f}) → {result_topic}")
+    print(f"[bridge] {sensor_id}: {verdict} (conf={confidence:.2f}) → {result_topic}")
 
-    # 5. Write to JSON file for HTTP polling fallback
+    # 4. Write to JSON file for HTTP polling fallback
     try:
-        import os
         os.makedirs('/srv/dashboard/data', exist_ok=True)
         with open('/srv/dashboard/data/result.json', 'w') as f:
             json.dump(result, f)
     except Exception as e:
         print(f"[bridge] Failed to write result.json: {e}")
 
-    # 6. Buffer for DB persistence
+    # 5. Buffer for DB persistence
     with _inference_count_lock:
         _inference_count += 1
 
     db_record = {
         "captured_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "sensor_id": sensor_id,
-        "verdict": vibe["verdict"],
-        "confidence": vibe["confidence"],
+        "verdict": verdict,
+        "confidence": confidence,
         "latency_ms": round(latency_ms, 1),
-        "features": json.dumps(vibe["features"]),
-        "source": result["source"],
+        "features": json.dumps(features_dict),
+        "source": source,
     }
 
     with _buffer_lock:
@@ -450,6 +533,7 @@ def main():
     print("="*60)
     print(f"MQTT:    {MQTT_HOST}:{MQTT_PORT}")
     print(f"EEP:     {DIAGNOSE_ENDPOINT} (USE_EEP={USE_EEP})")
+    print(f"IEP2:    {IEP2_DIAGNOSE_ENDPOINT}")
     print(f"Window:  {INFERENCE_WINDOW_S}s")
     print(f"DB:      {'enabled' if TIMESCALE_DSN and psycopg2 else 'disabled'}")
     print(f"Metrics: :{BRIDGE_METRICS_PORT}")

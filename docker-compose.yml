@@ -195,13 +195,15 @@ services:
       - OMNI_MQTT_HOST=mqtt-broker
       - OMNI_MQTT_PORT=1883
       - OMNI_EEP_URL=http://eep:8000
+      - OMNI_IEP2_URL=http://iep2:8002
       - BRIDGE_WINDOW_S=5.0
+      - BRIDGE_USE_EEP=false
       - TIMESCALE_DSN=postgresql://${POSTGRES_USER:-omni}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@timescaledb:5432/${POSTGRES_DB:-omnisense}
     volumes:
       - ./dashboard:/srv/dashboard:rw
     depends_on:
       - mqtt-broker
-      - eep
+      - iep2
     networks:
       - omni-net
     restart: unless-stopped

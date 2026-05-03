@@ -65,6 +65,7 @@ PIPE_MATERIAL_MAP = {"PVC": 0.0, "Steel": 1.0, "Cast_Iron": 2.0}
 def extract_dataset(
     clips_dir: Path,
     binary: bool = True,
+    sr_override: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, list[str]]:
     """
     Load all WAV clips from clips_dir and extract DSP features.
@@ -107,6 +108,8 @@ def extract_dataset(
 
         if pcm.ndim > 1:
             pcm = pcm.mean(axis=1)
+
+        sr = sr_override if sr_override is not None else sr
 
         # Pad/trim to 5 seconds
         target = sr * 5
@@ -293,10 +296,16 @@ def train_and_export(
     n_features = X.shape[1]
     initial_type = [("float_input", FloatTensorType([None, n_features]))]
 
-    # XGBoost → ONNX via skl2onnx
+    # XGBoost → ONNX via onnxmltools
     try:
-        xgb_onnx = convert_sklearn(xgb_model, initial_types=initial_type,
-                                   target_opset=13)
+        from onnxmltools.convert import convert_xgboost
+        from onnxmltools.convert.common.data_types import FloatTensorType as OnnxFloatTensorType
+        xgb_initial_type = [("float_input", OnnxFloatTensorType([None, n_features]))]
+        xgb_onnx = convert_xgboost(
+            xgb_model,
+            initial_types=xgb_initial_type,
+            target_opset=13,
+        )
         xgb_path = output_dir / "xgb_head.onnx"
         with open(xgb_path, "wb") as f:
             f.write(xgb_onnx.SerializeToString())
@@ -334,16 +343,16 @@ def train_and_export(
     (output_dir / "omni_threshold.json").write_text(json.dumps(thresholds, indent=2))
 
     # Summary
-    print("\n" + "═" * 72)
+    print("\n" + "=" * 72)
     print("  OMNI EEP HEAD TRAINING COMPLETE")
-    print("═" * 72)
+    print("=" * 72)
     print(f"  Classes     : {class_names}")
     print(f"  Train / Val : {len(X_tr)} / {len(X_val)}")
     print(f"  XGB F1      : {xgb_f1:.4f}  AUC: {metrics.get('xgb_auc', 0):.4f}")
     print(f"  RF  F1      : {rf_f1:.4f}   OOB: {rf_model.oob_score_:.4f}")
     print(f"  Fused F1    : {fus_f1:.4f}")
     print(f"  Output dir  : {output_dir}")
-    print("═" * 72)
+    print("=" * 72)
 
     return metrics
 
@@ -356,6 +365,8 @@ def main():
     )
     ap.add_argument("--clips-dir",    default="data/synthesized")
     ap.add_argument("--output-dir",   default="omni/models")
+    ap.add_argument("--sr",           type=int,   default=None,
+                    help="Override sample rate for feature extraction (default: infer from file)")
     ap.add_argument("--binary",       action="store_true", default=True,
                     help="Collapse all leak types into a single 'Leak' class")
     ap.add_argument("--no-binary",    dest="binary", action="store_false")
@@ -364,7 +375,7 @@ def main():
     args = ap.parse_args()
 
     X, y, source_wavs, class_names = extract_dataset(
-        Path(args.clips_dir), binary=args.binary
+        Path(args.clips_dir), binary=args.binary, sr_override=args.sr
     )
     train_and_export(
         X, y, source_wavs, class_names,
