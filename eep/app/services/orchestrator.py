@@ -24,6 +24,9 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 from app.config import settings
 from app.features import extract_features  # Local NumPy extraction
 
+# Target sample rate for IEP2 models (must match training rate)
+_TARGET_SR = 3200
+
 # ─── Prometheus metrics ───────────────────────────────────────────────────────
 
 IEP4_FALLBACK_COUNTER = Counter(
@@ -91,8 +94,13 @@ async def extract_features_local(audio_bytes: bytes) -> list[float]:
             audio_data = np.mean(audio_data, axis=1)
         audio_data = audio_data.astype(np.float32)
 
+        # Resample to the rate the IEP2 models were trained on
+        if sr != _TARGET_SR:
+            import librosa
+            audio_data = librosa.resample(audio_data, orig_sr=sr, target_sr=_TARGET_SR)
+
         # Extract features locally — no HTTP call needed anymore
-        features = extract_features(audio_data, sr=sr)
+        features = extract_features(audio_data, sr=_TARGET_SR)
         return features.tolist()
 
     except Exception as e:
