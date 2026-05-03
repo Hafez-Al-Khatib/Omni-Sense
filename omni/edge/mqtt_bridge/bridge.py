@@ -350,12 +350,16 @@ def process_window(sensor_id: str, samples: np.ndarray):
         latency_ms = (time.time() - t0) * 1000
 
         if resp.status_code == 422:
-            # OOD rejection
-            verdict = "UNKNOWN"
-            confidence = 0.0
-            probs = {"HEALTHY": 0.33, "LEAK": 0.33, "CRACK": 0.34}
-            source = "iep2_ood"
-            features_dict = {}
+            # OOD rejection — fall back to heuristic vibration classifier
+            # instead of returning UNKNOWN.  The heuristic was designed for
+            # accelerometer data and gives actionable physics-based verdicts.
+            vibe = classify_vibration(samples, SOURCE_SR)
+            latency_ms = (time.time() - t0) * 1000
+            verdict = vibe["verdict"]
+            confidence = vibe["confidence"]
+            probs = vibe["probs"]
+            features_dict = vibe["features"]
+            source = "vibration_heuristic"
             anomaly_score = iep2_data.get("anomaly_score")
             ood_threshold = iep2_data.get("threshold")
         else:
