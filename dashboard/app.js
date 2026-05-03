@@ -203,7 +203,7 @@ function updateSensorOnMap(sensorId, data) {
     s.marker.setLatLng([s.lat, s.lng]);
   }
   s.marker.setIcon(makeSensorIcon(true));
-  const popupVerdict = (s.verdict==='UNKNOWN'&&s.source==='iep2_ood')?'OOD':s.verdict;
+  const popupVerdict = (s.verdict==='UNKNOWN'&&s.source==='iep2_ood')?'OOD':(s.source==='vibration_heuristic'?s.verdict+' (H)':s.verdict);
   s.marker.setPopupContent(`<b>${sensorId}</b><br>${s.site}<br><span style="color:#0dc9d0">&#9679; ONLINE</span> · ${popupVerdict}`);
   updateSensorKPIs();
   updateSensorScreen(sensorId);
@@ -293,6 +293,7 @@ function drawWaveform(canvasId, samples, rms) {
 function renderInference(inf) {
   const isStale = inf.stale;
   const isOod = inf.source === 'iep2_ood';
+  const isHeuristic = inf.source === 'vibration_heuristic';
   const displayVerdict = isOod ? 'Out-of-Distribution' : ((inf.verdict || '--') + (isStale ? ' (STALE)' : ''));
   const vEl=$('#verdictValue');
   if(vEl){vEl.textContent=displayVerdict;vEl.className='verdict-value '+(isOod?'unknown':(isStale?'unknown':tagCls(inf.verdict)));}
@@ -302,6 +303,9 @@ function renderInference(inf) {
   if(oodEl){
     if(isOod&&inf.anomaly_score!==undefined&&inf.ood_threshold!==undefined){
       oodEl.innerHTML='<span style="color:var(--fg-2)">OOD score: '+inf.anomaly_score.toFixed(4)+' < threshold '+inf.ood_threshold.toFixed(4)+'</span>';
+      oodEl.style.display='block';
+    }else if(isHeuristic){
+      oodEl.innerHTML='<span style="color:var(--fg-2)">Physics-based heuristic (ML model trained on wrong data)</span>';
       oodEl.style.display='block';
     }else{oodEl.style.display='none';}
   }
@@ -354,7 +358,7 @@ function updateHistoryTables() {
   if(tb&&S.inferHist.length>0){
     tb.innerHTML=S.inferHist.slice(0,20).map(inf=>{
       const f=inf.features||{};
-      const vDisplay = inf.source==='iep2_ood' ? 'OOD' : inf.verdict;
+      const vDisplay = inf.source==='iep2_ood' ? 'OOD' : (inf.source==='vibration_heuristic' ? inf.verdict + ' (H)' : inf.verdict);
       return `<tr><td>${fmtTime(inf.ts)}</td><td>${inf.source||'vibration'}</td><td class="v-${inf.verdict}">${vDisplay}</td><td>${((inf.confidence||0)*100).toFixed(1)}%</td><td>${Math.round(inf.latency_ms||0)} ms</td><td>RMS:${(f.rms||0).toFixed(3)} K:${(f.kurtosis||0).toFixed(1)}</td></tr>`;
     }).join('');
   }
