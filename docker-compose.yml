@@ -31,7 +31,7 @@ services:
     ports:
       - "8002:8002"
     environment:
-      - OMNI_OOD_THRESHOLD=${OMNI_OOD_THRESHOLD:-0.0}
+      - OMNI_OOD_THRESHOLD=${OMNI_OOD_THRESHOLD:--0.08}
     volumes:
       - ./iep2/models:/app/models:rw
     healthcheck:
