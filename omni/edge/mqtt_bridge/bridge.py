@@ -328,6 +328,8 @@ def process_window(sensor_id: str, samples: np.ndarray):
     print(f"[bridge] {sensor_id}: processing {len(samples)} samples ({len(samples)/SOURCE_SR:.2f}s)")
 
     # 1. Extract DSP features and call IEP2
+    anomaly_score = None
+    ood_threshold = None
     try:
         features = extract_features(samples, sr=int(SOURCE_SR))
 
@@ -357,9 +359,6 @@ def process_window(sensor_id: str, samples: np.ndarray):
             anomaly_score = iep2_data.get("anomaly_score")
             ood_threshold = iep2_data.get("threshold")
         else:
-            anomaly_score = None
-            ood_threshold = None
-        else:
             # Map IEP2 label to our verdict space
             label = iep2_data.get("label", "No_Leak")
             verdict = _map_iep2_label(label)
@@ -368,6 +367,8 @@ def process_window(sensor_id: str, samples: np.ndarray):
             probs = _normalize_probs(iep2_probs)
             source = "iep2_ml"
             features_dict = {}
+            anomaly_score = None
+            ood_threshold = None
 
     except Exception as e:
         # Fallback to heuristic on IEP2 failure
