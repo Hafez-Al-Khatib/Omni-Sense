@@ -10,7 +10,10 @@
   #define MQTT_USER "omni"
   #define MQTT_PASSWORD "VuopaI9vrdpmtH0svAdjpe48"
 
-  #define SENSOR_ID "esp32-s3-01"
+  // Sensor ID: specific name (e.g. "esp32-s3-01") or "AUTO" to derive from MAC.
+  // AUTO lets you flash the same binary to every sensor without editing.
+  #define SENSOR_ID "AUTO"
+
   #define SITE_ID "demo-site"
   #define FIRMWARE_VERSION "1.0.0"
 

@@ -159,6 +159,18 @@ static uint32_t _publishCount  = 0;
 
 static char _acousticTopic[128];
 static char _telemetryTopic[128];
+static char _sensorId[24];
+
+static void initSensorId() {
+  if (strcmp(SENSOR_ID, "AUTO") == 0) {
+    uint8_t mac[6];
+    esp_read_mac(mac, ESP_MAC_WIFI_STA);
+    snprintf(_sensorId, sizeof(_sensorId), "esp32-%02X%02X", mac[4], mac[5]);
+  } else {
+    strncpy(_sensorId, SENSOR_ID, sizeof(_sensorId) - 1);
+    _sensorId[sizeof(_sensorId) - 1] = '\0';
+  }
+}
 
 #if defined(OMNI_PUBLISH_FEATURES) && OMNI_PUBLISH_FEATURES
 // 5-second rolling window at SAMPLE_RATE for on-device feature extraction.
@@ -395,7 +407,7 @@ static void wifi_connect() {
     _mqttClient.setKeepAlive(60);
     int retries = 0;
     while (!_mqttClient.connected() && retries < 5) {
-      if (_mqttClient.connect(SENSOR_ID)) { Serial.println("[MQTT] connected"); return true; }
+      if (_mqttClient.connect(_sensorId)) { Serial.println("[MQTT] connected"); return true; }
       Serial.printf("[MQTT] failed state=%d retry %d\n", _mqttClient.state(), retries+1);
       delay(2000 * (1 << retries)); retries++;
     }
@@ -507,7 +519,7 @@ static void publish_features(float rms_g, float snr_db) {
     "\"edge_ood_status\":\"%s\","
     "\"firmware_version\":\"%s\","
     "\"features\":[",
-    SENSOR_ID, SITE_ID, ts, SAMPLE_RATE, FEAT_WINDOW_S,
+    _sensorId, SITE_ID, ts, SAMPLE_RATE, FEAT_WINDOW_S,
     snr_db, inf.mse, inf.threshold,
     inf.ok ? "anomaly" : "model_unavailable",
     FIRMWARE_VERSION);
@@ -546,7 +558,7 @@ static void publish_telemetry() {
     "\"disk_free_mb\":%.1f,\"rtc_drift_ms\":0,"
     "\"uptime_s\":%lld,\"firmware_version\":\"%s\","
     "\"wifi_rssi\":%d,\"frames_published\":%lu,\"frames_dropped\":%lu}",
-    SENSOR_ID, ts, batt, temp_c,
+    _sensorId, ts, batt, temp_c,
     (float)heap/1024.0f, uptime, FIRMWARE_VERSION,
     WiFi.RSSI(), _publishCount, _dropCount);
   mqtt_publish_raw(_telemetryTopic, _jsonbuf);
@@ -555,7 +567,7 @@ static void publish_telemetry() {
 // ─────────────────────────── OTA ──────────────────────────────────────────────
 
 static void ota_init() {
-  ArduinoOTA.setHostname(SENSOR_ID);
+  ArduinoOTA.setHostname(_sensorId);
   ArduinoOTA.onStart([]() {
     Serial.println("[OTA] starting — stopping SPI");
     _spi.end();
@@ -571,19 +583,19 @@ static void ota_init() {
 void setup() {
   Serial.begin(115200);
   delay(500);
+  initSensorId();
   Serial.println("\n=== Omni-Sense ESP32 v3 — Structure-Borne Accelerometer ===");
-  Serial.printf("  Sensor  : %s\n", SENSOR_ID);
+  Serial.printf("  Sensor  : %s\n", _sensorId);
   Serial.printf("  Site    : %s\n", SITE_ID);
   Serial.printf("  FW      : %s\n", FIRMWARE_VERSION);
   Serial.printf("  Sensor  : ADXL345 SPI @ %d Hz (Z-axis) — honest structure-borne vibration sampling\n", SAMPLE_RATE);
   Serial.printf("  Frame   : %d samples = %.3f s\n", FRAME_SAMPLES,
                 (float)FRAME_SAMPLES / SAMPLE_RATE);
   Serial.printf("  Nyquist : %d Hz (leak detection band 50–1600 Hz)\n", SAMPLE_RATE / 2);
-
   snprintf(_acousticTopic,  sizeof(_acousticTopic),
-           "sensors/%s/accel",  SENSOR_ID);
+           "sensors/%s/accel",  _sensorId);
   snprintf(_telemetryTopic, sizeof(_telemetryTopic),
-           "omni/sensor/%s/%s/telemetry", SITE_ID, SENSOR_ID);
+           "omni/sensor/%s/%s/telemetry", SITE_ID, _sensorId);
 
 #if BATTERY_ADC_PIN >= 0
   analogReadResolution(12);
