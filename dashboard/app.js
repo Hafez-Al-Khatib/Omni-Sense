@@ -225,10 +225,12 @@ function drawWaveform(canvasId, samples, rms) {
 
 /* ── Inference Rendering ── */
 function renderInference(inf) {
+  const isStale = inf.stale;
+  const displayVerdict = (inf.verdict || '--') + (isStale ? ' (STALE)' : '');
   const vEl=$('#verdictValue');
-  if(vEl){vEl.textContent=inf.verdict||'--';vEl.className='verdict-value '+tagCls(inf.verdict);}
+  if(vEl){vEl.textContent=displayVerdict;vEl.className='verdict-value '+(isStale?'unknown':tagCls(inf.verdict));}
   const tEl=$('#infTag');
-  if(tEl){tEl.textContent=inf.verdict||'--';tEl.className='tag '+tagCls(inf.verdict);}
+  if(tEl){tEl.textContent=displayVerdict;tEl.className='tag '+(isStale?'unknown':tagCls(inf.verdict));}
   const bars=$('#probBars');
   if(bars){bars.innerHTML='';
     const labels={HEALTHY:'Healthy',LEAK:'Leak',CRACK:'Crack',UNKNOWN:'Unknown'};
@@ -239,7 +241,15 @@ function renderInference(inf) {
   }
   const cEl=$('#infConf');if(cEl)cEl.textContent=inf.confidence?((inf.confidence*100).toFixed(1)+'%'):'--';
   const lEl=$('#infLatency');if(lEl)lEl.textContent=inf.latency_ms?Math.round(inf.latency_ms):'--';
-  const tmEl=$('#infTime');if(tmEl)tmEl.textContent=fmtTime(inf.ts||inf.timestamp);
+  const tmEl=$('#infTime');
+  if(tmEl){
+    if(isStale){
+      const ageSec = Math.round((Date.now() - inf.ts)/1000);
+      tmEl.textContent = fmtTime(inf.ts) + ' (' + ageSec + 's ago)';
+    } else {
+      tmEl.textContent = fmtTime(inf.ts||inf.timestamp);
+    }
+  }
 
   const alertPill=$('#kpiAlertPill'),alertVal=$('#kpiAlerts');
   const alerts=S.inferHist.filter(x=>x.verdict!=='HEALTHY').length;
@@ -326,12 +336,23 @@ async function api(path, opts={}) {
 function ingestResult(data) {
   if (!data || !data.verdict) return;
   const sensorId = data.sensor_id || 'unknown';
-  const inf = { ts: data.ts || Date.now(), verdict: data.verdict, probs: data.probs || {}, confidence: data.confidence || 0, latency_ms: data.latency_ms || 0, features: data.features || {}, sensor_id: sensorId, source: data.source || 'vibration' };
+  const dataTs = data.ts || Date.now();
+  const now = Date.now();
+  const isStale = now - dataTs > SENSOR_TIMEOUT_MS;
+
+  const inf = { ts: dataTs, verdict: data.verdict, probs: data.probs || {}, confidence: data.confidence || 0, latency_ms: data.latency_ms || 0, features: data.features || {}, sensor_id: sensorId, source: data.source || 'vibration', stale: isStale };
   S.inferHist.unshift(inf);
   if (S.inferHist.length > CFG.maxHistory) S.inferHist.pop();
   renderInference(inf);
-  setBridgeStatus('online', 'Active');
-  updateSensorOnMap(sensorId, data);
+
+  if (isStale) {
+    setBridgeStatus('offline', 'Stale data');
+    // Do NOT refresh lastSeen — let checkSensorTimeouts mark it offline
+  } else {
+    setBridgeStatus('online', 'Active');
+    updateSensorOnMap(sensorId, data);
+  }
+
   const cnt = $('#infCount'); if (cnt) cnt.textContent = S.inferHist.length;
   const avg = S.inferHist.reduce((a, b) => a + (b.latency_ms || 0), 0) / S.inferHist.length;
   const avgEl = $('#avgLatency'); if (avgEl) avgEl.textContent = Math.round(avg) + ' ms';
