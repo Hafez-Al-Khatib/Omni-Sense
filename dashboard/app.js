@@ -29,7 +29,9 @@ const S = {
   frames: 0, samples: [], inferHist: [], ticketHist: [],
   lastRms: 0, lastSnr: 0,
   sensorMeta: { id:'esp32-s3-01', site:'demo-site', lat:33.8938, lng:35.5018 },
+  sensors: {}, // sensor_id -> { lastSeen, online, lat, lng, marker, verdict, site }
 };
+const SENSOR_TIMEOUT_MS = 30000; // mark offline after 30s of no data
 
 const $  = s => document.querySelector(s);
 const $$ = s => document.querySelectorAll(s);
@@ -100,13 +102,100 @@ L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
   attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
   subdomains: 'abcd', maxZoom: 19
 }).addTo(map);
-const sensorIcon = L.divIcon({
-  className: '',
-  html: `<div style="width:14px;height:14px;background:#0dc9d0;border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 4px rgba(13,201,208,0.25);"></div>`,
-  iconSize: [14,14], iconAnchor: [7,7]
-});
-L.marker([33.8938, 35.5018], { icon: sensorIcon }).addTo(map)
-  .bindPopup(`<b>esp32-s3-01</b><br>demo-site<br><span style="color:#0dc9d0">&#9679; LIVE</span>`);
+function makeSensorIcon(online) {
+  const color = online ? '#0dc9d0' : '#94a3b8';
+  const glow = online ? 'rgba(13,201,208,0.25)' : 'rgba(148,163,184,0.15)';
+  return L.divIcon({
+    className: '',
+    html: `<div style="width:14px;height:14px;background:${color};border:2px solid #fff;border-radius:50%;box-shadow:0 0 0 4px ${glow};transition:background 0.3s;"></div>`,
+    iconSize: [14,14], iconAnchor: [7,7]
+  });
+}
+
+function updateSensorOnMap(sensorId, data) {
+  const now = Date.now();
+  let s = S.sensors[sensorId];
+  if (!s) {
+    s = {
+      lastSeen: now,
+      online: true,
+      lat: data.lat || S.sensorMeta.lat,
+      lng: data.lng || S.sensorMeta.lng,
+      marker: null,
+      verdict: data.verdict || 'UNKNOWN',
+      site: data.site || S.sensorMeta.site,
+    };
+    s.marker = L.marker([s.lat, s.lng], { icon: makeSensorIcon(true) }).addTo(map).bindPopup('');
+    s.marker.openPopup();
+    S.sensors[sensorId] = s;
+  }
+  s.lastSeen = now;
+  s.online = true;
+  s.verdict = data.verdict || s.verdict;
+  s.site = data.site || s.site;
+  if (data.lat && data.lng) {
+    s.lat = data.lat; s.lng = data.lng;
+    s.marker.setLatLng([s.lat, s.lng]);
+  }
+  s.marker.setIcon(makeSensorIcon(true));
+  s.marker.setPopupContent(`<b>${sensorId}</b><br>${s.site}<br><span style="color:#0dc9d0">&#9679; ONLINE</span> · ${s.verdict}`);
+  updateSensorKPIs();
+  updateSensorScreen(sensorId);
+}
+
+function updateSensorScreen(sensorId) {
+  const s = S.sensors[sensorId];
+  if (!s) return;
+  // Update static sensor config rows if they exist
+  const uptimeEl = $('#sensorUptime');
+  if (uptimeEl) uptimeEl.textContent = 'Active now';
+}
+
+function markSensorOffline(sensorId) {
+  const s = S.sensors[sensorId];
+  if (!s || !s.online) return;
+  s.online = false;
+  s.marker.setIcon(makeSensorIcon(false));
+  s.marker.setPopupContent(`<b>${sensorId}</b><br>${s.site}<br><span style="color:#94a3b8">&#9679; OFFLINE</span> · last ${fmtTime(s.lastSeen)}`);
+  updateSensorKPIs();
+  const uptimeEl = $('#sensorUptime');
+  if (uptimeEl) uptimeEl.textContent = 'Disconnected';
+}
+
+function checkSensorTimeouts() {
+  const now = Date.now();
+  for (const [sid, s] of Object.entries(S.sensors)) {
+    if (s.online && now - s.lastSeen > SENSOR_TIMEOUT_MS) {
+      markSensorOffline(sid);
+    }
+  }
+}
+
+function updateSensorKPIs() {
+  const total = Object.keys(S.sensors).length;
+  const online = Object.values(S.sensors).filter(s => s.online).length;
+  const kpiEl = $('#kpiSensors');
+  const unitEl = kpiEl?.nextElementSibling;
+  if (kpiEl) kpiEl.textContent = online;
+  if (unitEl) unitEl.textContent = `/${total} ONLINE`;
+
+  const mapTag = $('#mapStatusTag');
+  if (mapTag) {
+    if (online === 0 && total > 0) {
+      mapTag.textContent = 'OFFLINE';
+      mapTag.className = 'tag unknown';
+    } else if (online < total) {
+      mapTag.textContent = 'DEGRADED';
+      mapTag.className = 'tag warn';
+    } else if (total > 0) {
+      mapTag.textContent = 'LIVE';
+      mapTag.className = 'tag ok';
+    } else {
+      mapTag.textContent = 'NO DATA';
+      mapTag.className = 'tag unknown';
+    }
+  }
+}
 
 /* ── Waveform Canvas ── */
 function drawWaveform(canvasId, samples, rms) {
@@ -236,11 +325,13 @@ async function api(path, opts={}) {
 
 function ingestResult(data) {
   if (!data || !data.verdict) return;
-  const inf = { ts: data.ts || Date.now(), verdict: data.verdict, probs: data.probs || {}, confidence: data.confidence || 0, latency_ms: data.latency_ms || 0, features: data.features || {}, sensor_id: data.sensor_id || 'unknown', source: data.source || 'vibration' };
+  const sensorId = data.sensor_id || 'unknown';
+  const inf = { ts: data.ts || Date.now(), verdict: data.verdict, probs: data.probs || {}, confidence: data.confidence || 0, latency_ms: data.latency_ms || 0, features: data.features || {}, sensor_id: sensorId, source: data.source || 'vibration' };
   S.inferHist.unshift(inf);
   if (S.inferHist.length > CFG.maxHistory) S.inferHist.pop();
   renderInference(inf);
   setBridgeStatus('online', 'Active');
+  updateSensorOnMap(sensorId, data);
   const cnt = $('#infCount'); if (cnt) cnt.textContent = S.inferHist.length;
   const avg = S.inferHist.reduce((a, b) => a + (b.latency_ms || 0), 0) / S.inferHist.length;
   const avgEl = $('#avgLatency'); if (avgEl) avgEl.textContent = Math.round(avg) + ' ms';
@@ -391,6 +482,7 @@ setInterval(pollLive, CFG.pollInterval);
 setInterval(pollMetrics, 10000);
 setInterval(loadTickets, 15000);
 setInterval(pollHealth, 30000);
+setInterval(checkSensorTimeouts, 5000);
 pollLive(); pollMetrics(); loadTickets(); pollHealth();
 populateConnUrls();
 
