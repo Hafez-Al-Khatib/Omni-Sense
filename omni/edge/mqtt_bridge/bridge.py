@@ -20,6 +20,7 @@ import struct
 import wave
 import io
 import threading
+import warnings
 from typing import Optional
 from dataclasses import dataclass, field
 
@@ -540,7 +541,9 @@ def main():
     print("="*60)
 
     try:
-        client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
     except AttributeError:
         client = mqtt.Client()
     if MQTT_USER and MQTT_PASS:
