@@ -344,6 +344,7 @@ def process_window(sensor_id: str, samples: np.ndarray):
             "pipe_material": "PVC",
             "pressure_bar": 3.0,
         }
+        print(f"[bridge] DEBUG embedding len={len(features_with_meta.tolist())}")
 
         resp = requests.post(IEP2_DIAGNOSE_ENDPOINT, json=payload, timeout=5)
         iep2_data = resp.json()
