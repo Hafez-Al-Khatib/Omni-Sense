@@ -333,18 +333,13 @@ def process_window(sensor_id: str, samples: np.ndarray):
     try:
         features = extract_features(samples, sr=int(SOURCE_SR))
 
-        # Add metadata (pipe_material, pressure_bar) → 41-d vector
-        features_with_meta = np.concatenate([
-            features,
-            np.array([0.0, 3.0], dtype=np.float32)  # PVC=0.0, pressure=3.0 bar
-        ])
-
+        # Send RAW 39-d DSP features only.
+        # IEP2 classifier appends metadata (pipe_material, pressure_bar) internally.
         payload = {
-            "embedding": features_with_meta.tolist(),
+            "embedding": features.tolist(),
             "pipe_material": "PVC",
             "pressure_bar": 3.0,
         }
-        print(f"[bridge] DEBUG embedding len={len(features_with_meta.tolist())}")
 
         resp = requests.post(IEP2_DIAGNOSE_ENDPOINT, json=payload, timeout=5)
         iep2_data = resp.json()
