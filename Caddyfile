@@ -45,7 +45,7 @@ ops.{$OMNI_DOMAIN} {
     encode gzip
 
     basic_auth {
-        admin {$OMNI_DASHBOARD_HASH:$2b$10$W28V.KrZOHt6iNawOBLDeOALx2p2YkFaPnSa7JrWZwVlfddTJbgLe}
+        admin {$OMNI_DASHBOARD_HASH}
     }
 
     # Live API proxy (strips /api prefix)
