@@ -95,6 +95,63 @@ $$('.nav-item').forEach(item => {
   });
 });
 
+/* ── Geolocation helpers ── */
+function loadSavedLocation() {
+  try {
+    const raw = localStorage.getItem('omni_sensor_location');
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return null;
+}
+function saveLocation(lat, lng) {
+  try {
+    localStorage.setItem('omni_sensor_location', JSON.stringify({ lat, lng, savedAt: Date.now() }));
+  } catch (e) {}
+  S.sensorMeta.lat = lat;
+  S.sensorMeta.lng = lng;
+}
+
+async function detectLocation() {
+  const saved = loadSavedLocation();
+  if (saved) {
+    S.sensorMeta.lat = saved.lat;
+    S.sensorMeta.lng = saved.lng;
+    return;
+  }
+
+  // 1. Try browser geolocation (most accurate)
+  if (navigator.geolocation) {
+    try {
+      const pos = await new Promise((res, rej) => navigator.geolocation.getCurrentPosition(res, rej, { timeout: 8000 }));
+      S.sensorMeta.lat = pos.coords.latitude;
+      S.sensorMeta.lng = pos.coords.longitude;
+      saveLocation(S.sensorMeta.lat, S.sensorMeta.lng);
+      console.log('[geo] browser location:', S.sensorMeta.lat, S.sensorMeta.lng);
+      return;
+    } catch (e) {
+      console.log('[geo] browser denied/unavailable:', e.message);
+    }
+  }
+
+  // 2. Fallback: IP geolocation (no API key needed)
+  try {
+    const resp = await fetch('https://ip-api.com/json/?fields=lat,lon,status');
+    const data = await resp.json();
+    if (data.status === 'success') {
+      S.sensorMeta.lat = data.lat;
+      S.sensorMeta.lng = data.lon;
+      saveLocation(S.sensorMeta.lat, S.sensorMeta.lng);
+      console.log('[geo] IP location:', S.sensorMeta.lat, S.sensorMeta.lng);
+      return;
+    }
+  } catch (e) {
+    console.log('[geo] IP lookup failed:', e.message);
+  }
+
+  // 3. Hardcoded default (Beirut)
+  console.log('[geo] using default location');
+}
+
 /* ── Leaflet Map ── */
 const map = L.map('map', { zoomControl: false }).setView([33.8938, 35.5018], 14);
 L.control.zoom({ position: 'bottomright' }).addTo(map);
@@ -125,7 +182,13 @@ function updateSensorOnMap(sensorId, data) {
       verdict: data.verdict || 'UNKNOWN',
       site: data.site || S.sensorMeta.site,
     };
-    s.marker = L.marker([s.lat, s.lng], { icon: makeSensorIcon(true) }).addTo(map).bindPopup('');
+    s.marker = L.marker([s.lat, s.lng], { icon: makeSensorIcon(true), draggable: true }).addTo(map).bindPopup('');
+    s.marker.on('dragend', (e) => {
+      const ll = e.target.getLatLng();
+      s.lat = ll.lat; s.lng = ll.lng;
+      saveLocation(ll.lat, ll.lng);
+      toast(`Sensor location updated: ${ll.lat.toFixed(4)}, ${ll.lng.toFixed(4)}`, 'ok');
+    });
     s.marker.openPopup();
     S.sensors[sensorId] = s;
   }
@@ -537,6 +600,9 @@ function populateConnUrls() {
 }
 
 /* ── Init ── */
+detectLocation().then(() => {
+  map.setView([S.sensorMeta.lat, S.sensorMeta.lng], 14);
+});
 tryMQTT();
 setInterval(pollLive, CFG.pollInterval);
 setInterval(pollMetrics, 10000);
